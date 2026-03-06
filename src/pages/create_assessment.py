@@ -1,0 +1,772 @@
+import streamlit as st
+import pandas as pd
+
+from src.e2caf_client import get_client
+from src.assessment_builder import analyze_use_case_readonly
+from src.assessment_store import save_assessment, save_findings
+from src.question_generator import generate_questions_for_capability
+from collections import defaultdict
+
+def render():
+    st.title("Create Assessment")
+    st.caption("Guided wizard. No database writes for this test.")
+
+    # Init session state
+    st.session_state.setdefault("use_case_name", "")
+    st.session_state.setdefault("intent_text", "")
+    st.session_state.setdefault("wizard_step", 1)
+    st.session_state.setdefault("client_name", "")
+    st.session_state.setdefault("engagement_name", "")
+    st.session_state.setdefault("client_industry", "")
+    st.session_state.setdefault("client_sector", "")
+    st.session_state.setdefault("client_country", "")
+
+    # Storage for step 2 outputs
+    st.session_state.setdefault("core_caps", [])
+    st.session_state.setdefault("upstream_caps", [])
+    st.session_state.setdefault("downstream_caps", [])
+    st.session_state.setdefault("domains_covered", {})
+    st.session_state.setdefault("questions", [])
+    st.session_state.setdefault("responses", {})
+    st.session_state.setdefault("findings_narrative", None)
+    st.session_state.setdefault("domain_targets", {})
+    st.session_state.setdefault("assessment_id", None)
+    st.session_state.setdefault("findings_saved", False)
+
+    # -------------------------
+    # STEP 1
+    # -------------------------
+    if st.session_state.wizard_step == 1:
+        st.subheader("Step 1 — Define use case and intent")
+
+        with st.form("step1_form", clear_on_submit=False):
+            st.markdown("#### Client")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                client_name = st.text_input(
+                    "Client name *",
+                    value=st.session_state.get("client_name", ""),
+                    placeholder="e.g., Massey University",
+                )
+            with col_b:
+                engagement_name = st.text_input(
+                    "Engagement name",
+                    value=st.session_state.get("engagement_name", ""),
+                    placeholder="e.g., Data Transformation Programme",
+                )
+
+            col_c, col_d, col_e = st.columns(3)
+            with col_c:
+                industry = st.selectbox(
+                    "Industry",
+                    ["", "Education", "Financial Services", "Government",
+                     "Healthcare", "Manufacturing", "Retail", "Telecommunications",
+                     "Energy & Utilities", "Professional Services", "Other"],
+                    index=0,
+                )
+            with col_d:
+                sector = st.selectbox(
+                    "Sector",
+                    ["", "Public", "Private", "Non-Profit"],
+                    index=0,
+                )
+            with col_e:
+                country = st.text_input(
+                    "Country",
+                    value=st.session_state.get("client_country", ""),
+                    placeholder="e.g., Australia",
+                )
+
+            st.markdown("#### Use Case")
+            use_case_name = st.text_input(
+                "Use case name *",
+                value=st.session_state.use_case_name,
+                placeholder="e.g., AI Enablement",
+            )
+            intent_text = st.text_area(
+                "What are you trying to achieve? *",
+                value=st.session_state.intent_text,
+                height=140,
+                placeholder=(
+                    "Example: Establish clear objectives for data governance, secure access, "
+                    "and trusted analytics across the university."
+                ),
+            )
+
+            submitted = st.form_submit_button("Analyse Use Case")
+
+        if submitted:
+            if not client_name.strip():
+                st.error("Please enter a client name.")
+                return
+            if not use_case_name.strip():
+                st.error("Please enter a use case name.")
+                return
+            if not intent_text.strip():
+                st.error("Please describe what you are trying to achieve.")
+                return
+
+            st.session_state.client_name = client_name.strip()
+            st.session_state.engagement_name = engagement_name.strip()
+            st.session_state.client_industry = industry
+            st.session_state.client_sector = sector
+            st.session_state.client_country = country.strip()
+            st.session_state.use_case_name = use_case_name.strip()
+            st.session_state.intent_text = intent_text.strip()
+            st.session_state.wizard_step = 2
+            st.success("Step 1 saved. Proceeding to Step 2.")
+
+    # -------------------------
+    # STEP 2
+    # -------------------------
+    if st.session_state.wizard_step == 2:
+        st.subheader("Step 2 — Capability discovery (Core / Upstream / Downstream)")
+        st.write(f"**Use case:** {st.session_state.use_case_name}")
+        st.write(f"**Intent:** {st.session_state.intent_text}")
+
+        st.info("This step reads from E2CAF only (no writes).")
+
+        colA, colB = st.columns(2)
+        with colA:
+            core_k = st.slider("How many Core capabilities?", 5, 20, 10)
+        
+        run = st.button("Run Capability Discovery", type="primary")
+
+        if run:
+            client = get_client()
+            candidates, core, upstream, downstream, covered, cap_count = analyze_use_case_readonly(
+                client=client,
+                intent_text=st.session_state.intent_text,
+                core_k=core_k,
+            )
+            st.caption(f"Capability library size (from E2CAF): {cap_count}")
+
+            # Store results for later steps
+            st.session_state.core_caps = [c.__dict__ for c in core]
+            st.session_state.upstream_caps = [c.__dict__ for c in upstream]
+            st.session_state.downstream_caps = [c.__dict__ for c in downstream]
+            st.session_state.domains_covered = covered
+
+            st.success("Capability discovery complete.")
+
+        # Show results if available
+        if st.session_state.core_caps:
+            st.markdown("### Core capabilities")
+            df_core = pd.DataFrame(st.session_state.core_caps)
+            cols_to_show = [c for c in ["capability_name", "domain_name", "subdomain_name", "score", "rationale"] if c in df_core.columns]
+            st.dataframe(df_core[cols_to_show], width='stretch')
+
+            st.markdown("### Upstream capabilities")
+            df_up = pd.DataFrame(st.session_state.upstream_caps)
+            st.dataframe(df_up, width='stretch')
+
+            st.markdown("### Downstream capabilities")
+            df_dn = pd.DataFrame(st.session_state.downstream_caps)
+            st.dataframe(df_dn, width='stretch')
+
+            st.markdown("### Domains covered (derived from selected capabilities)")
+            df_dom = pd.DataFrame(
+                [{"domain": k, "capability_count": v} for k, v in st.session_state.domains_covered.items()]
+            ).sort_values("capability_count", ascending=False)
+            st.dataframe(df_dom, width='stretch')
+
+        # Navigation controls
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("Back to Step 1"):
+                st.session_state.wizard_step = 1
+
+        with col2:
+            if st.button("Continue: Set Domain Targets"):
+                if not st.session_state.core_caps:
+                    st.error("Run capability discovery first.")
+                else:
+                    st.session_state.wizard_step = "2b"
+                    st.rerun()
+    
+    # -------------------------
+    # STEP 2b — Domain Targets
+    # -------------------------
+    if st.session_state.wizard_step == "2b":
+        st.subheader("Step 2b — Set Target Maturity per Domain")
+        st.caption(
+            "These targets define what 'good' looks like for each domain in this assessment. "
+            "Default is 3 (Defined). Adjust domains where a higher or lower target is appropriate."
+        )
+
+        if not st.session_state.domains_covered:
+            st.warning("No domains found. Go back to Step 2.")
+            if st.button("Back to Step 2"):
+                st.session_state.wizard_step = 2
+                st.rerun()
+            st.stop()
+
+        domains = sorted(st.session_state.domains_covered.keys())
+
+        # Load existing targets or default to 3
+        current_targets = st.session_state.domain_targets or {d: 3 for d in domains}
+
+        st.markdown("### Domain target maturity")
+        st.markdown(
+            "| Level | Label | Meaning |\n"
+            "|---|---|---|\n"
+            "| 1 | Not Defined | No formal process or ownership |\n"
+            "| 2 | Informal | Ad-hoc, person-dependent |\n"
+            "| 3 | Defined | Documented, consistently applied |\n"
+            "| 4 | Governed | Measured, enforced, reported |\n"
+            "| 5 | Optimized | Continuously improved, industry-leading |"
+        )
+
+        st.divider()
+
+        new_targets = {}
+        cols_per_row = 2
+        domain_chunks = [domains[i:i+cols_per_row] for i in range(0, len(domains), cols_per_row)]
+
+        for chunk in domain_chunks:
+            cols = st.columns(cols_per_row)
+            for col, domain in zip(cols, chunk):
+                with col:
+                    cap_count = st.session_state.domains_covered.get(domain, 0)
+                    new_targets[domain] = st.select_slider(
+                        f"{domain} ({cap_count} caps)",
+                        options=[1, 2, 3, 4, 5],
+                        value=current_targets.get(domain, 3),
+                        key=f"target_{domain}",
+                    )
+
+        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Back to Step 2"):
+                st.session_state.wizard_step = 2
+                st.rerun()
+        with col2:
+            if st.button("Continue to Step 3", type="primary"):
+                st.session_state.domain_targets = new_targets
+                st.session_state.wizard_step = 3
+                st.rerun()
+                
+    # -------------------------
+    # STEP 3
+    # -------------------------
+    if st.session_state.wizard_step == 3:
+        st.subheader("Step 3 — Generate assessment questions")
+
+        if not st.session_state.core_caps:
+            st.warning("No discovered capabilities found. Go back to Step 2 and run capability discovery.")
+            if st.button("Back to Step 2"):
+                st.session_state.wizard_step = 2
+                st.rerun()
+            st.stop()
+
+        include_upstream = st.checkbox("Include upstream capabilities", value=True)
+        include_downstream = st.checkbox("Include downstream capabilities", value=True)
+
+        q_per_cap = st.slider("Questions per capability", 2, 7, 4)
+        style = st.selectbox(
+            "Question style",
+            ["Maturity (1–5)", "Evidence (Yes/No + notes)", "Workshop (discussion)"],
+        )
+
+        if st.button("Generate Questions", type="primary"):
+            from src.question_generator import generate_questions_for_capability
+
+            use_case = st.session_state.use_case_name
+
+            caps = []
+            caps += [(c, "Core") for c in st.session_state.core_caps]
+            if include_upstream:
+                caps += [(c, "Upstream") for c in st.session_state.upstream_caps]
+            if include_downstream:
+                caps += [(c, "Downstream") for c in st.session_state.downstream_caps]
+
+            questions = []
+            progress_bar = st.progress(0)
+            status = st.empty()
+            total_caps = len(caps)
+
+            for i, (cap, role) in enumerate(caps):
+                status.caption(f"Generating questions for {cap['capability_name']} ({role})...")
+                questions.extend(
+                    generate_questions_for_capability(
+                        use_case=use_case,
+                        cap=cap,
+                        role=role,
+                        questions_per_capability=q_per_cap,
+                        style=style,
+                    )
+                )
+                progress_bar.progress((i + 1) / total_caps)
+
+            status.caption(f"Done — {len(questions)} questions generated.")
+            st.session_state.questions = [q.__dict__ for q in questions]
+            st.success(f"Generated {len(questions)} questions across {total_caps} capabilities.")
+
+        if st.session_state.questions:
+            df_q = pd.DataFrame(st.session_state.questions)
+            df_q["score"] = ""
+            df_q["answer"] = ""
+            df_q["notes"] = ""
+            st.dataframe(df_q, width='stretch')
+
+            st.download_button(
+                "Download Questions (CSV)",
+                data=df_q.to_csv(index=False).encode("utf-8"),
+                file_name=f"{st.session_state.use_case_name}_questions.csv".replace(" ", "_"),
+                mime="text/csv",
+            )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Back to Step 2"):
+                st.session_state.wizard_step = 2
+                st.rerun()
+        with col2:
+            if st.button("Continue to Step 4"):
+                if not st.session_state.questions:
+                    st.error("Generate questions first.")
+                else:
+                    st.session_state.wizard_step = 4
+                    st.session_state.responses = {}
+                    st.rerun()
+
+    # -------------------------
+    # STEP 4
+    # -------------------------
+    if st.session_state.wizard_step == 4:
+        st.subheader("Step 4 — Run Assessment")
+
+        if not st.session_state.questions:
+            st.warning("No questions found. Go back to Step 3.")
+            if st.button("Back to Step 3"):
+                st.session_state.wizard_step = 3
+                st.rerun()
+            st.stop()
+
+        questions = st.session_state.questions
+        responses = st.session_state.responses
+
+        # Progress
+        total = len(questions)
+        answered = len(responses)
+        st.progress(answered / total if total > 0 else 0)
+        st.caption(f"Progress: {answered} / {total} answered")
+
+        # Group questions by role → domain → capability
+        grouped = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+        for q in questions:
+            grouped[q["capability_role"]][q["domain"]][q["capability_name"]].append(q)
+
+        role_order = ["Core", "Upstream", "Downstream"]
+
+        widget_counter = 0
+        for role in role_order:
+            if role not in grouped:
+                continue
+            st.markdown(f"## {role} Capabilities")
+
+            for domain, caps in sorted(grouped[role].items()):
+                st.markdown(f"### {domain}")
+
+                for cap_name, qs in sorted(caps.items()):
+                    with st.expander(f"**{cap_name}** ({qs[0]['subdomain']})", expanded=False):
+                        for q in qs:
+                            widget_counter += 1
+                            key = str(q["capability_id"]) + "|" + q["question"] + "|" + str(widget_counter)
+                            rtype = q["response_type"]
+                            st.markdown(f"**{q['question']}**")
+                            st.caption(q["guidance"])
+
+                            if rtype == "maturity_1_5":
+                                score = st.radio(
+                                    "Score",
+                                    options=[1, 2, 3, 4, 5],
+                                    format_func=lambda x: {
+                                        1: "1 — Not Defined",
+                                        2: "2 — Informal",
+                                        3: "3 — Defined",
+                                        4: "4 — Governed",
+                                        5: "5 — Optimized",
+                                    }[x],
+                                    index=None,
+                                    key=f"score_{key}",
+                                    horizontal=True,
+                                )
+                                notes = st.text_area("Notes (optional)", key=f"notes_{key}", height=60)
+                                if score is not None:
+                                    responses[key] = {
+                                        "capability_id": q["capability_id"],
+                                        "capability_name": cap_name,
+                                        "domain": domain,
+                                        "subdomain": q["subdomain"],
+                                        "capability_role": role,
+                                        "question": q["question"],
+                                        "response_type": rtype,
+                                        "score": score,
+                                        "answer": None,
+                                        "notes": notes,
+                                    }
+
+                            elif rtype == "yes_no_evidence":
+                                answer = st.radio(
+                                    "Answer",
+                                    options=["Yes", "No", "Partial"],
+                                    index=None,
+                                    key=f"yn_{key}",
+                                    horizontal=True,
+                                )
+                                evidence = st.text_area("Evidence / Notes", key=f"ev_{key}", height=60)
+                                if answer is not None:
+                                    responses[key] = {
+                                        "capability_id": q["capability_id"],
+                                        "capability_name": cap_name,
+                                        "domain": domain,
+                                        "subdomain": q["subdomain"],
+                                        "capability_role": role,
+                                        "question": q["question"],
+                                        "response_type": rtype,
+                                        "score": None,
+                                        "answer": answer,
+                                        "notes": evidence,
+                                    }
+
+                            else:  # free_text / workshop
+                                notes = st.text_area(
+                                    "Discussion notes",
+                                    key=f"ft_{key}",
+                                    height=100,
+                                    placeholder="Capture what was discussed...",
+                                )
+                                score = st.select_slider(
+                                    "Agreed maturity score",
+                                    options=[1, 2, 3, 4, 5],
+                                    key=f"ws_{key}",
+                                )
+                                if notes.strip():
+                                    responses[key] = {
+                                        "capability_id": q["capability_id"],
+                                        "capability_name": cap_name,
+                                        "domain": domain,
+                                        "subdomain": q["subdomain"],
+                                        "capability_role": role,
+                                        "question": q["question"],
+                                        "response_type": rtype,
+                                        "score": score,
+                                        "answer": None,
+                                        "notes": notes,
+                                    }
+
+                            st.divider()
+
+        st.session_state.responses = responses
+        # ── Offline workflow ──
+        st.markdown("### Offline option")
+        st.caption("Complete the question CSV downloaded in Step 3 (add score, answer, and notes columns), then upload it here.")
+
+        uploaded = st.file_uploader(
+        "📂 Upload Completed Answers (CSV or Excel)",
+        type=["csv", "xlsx"],
+        help="Upload the completed question sheet from Step 3.",
+        )
+        
+        if uploaded is not None:
+            try:
+                filename = uploaded.name.lower()
+                if filename.endswith(".xlsx"):
+                    df_up = pd.read_excel(uploaded)
+                else:
+                    df_up = pd.read_csv(uploaded)
+                required_cols = {"capability_id", "capability_name", "domain",
+                                "subdomain", "capability_role", "question",
+                                "response_type", "guidance"}
+                if not required_cols.issubset(set(df_up.columns)):
+                    st.error("Uploaded file is missing required columns. Please use the Step 3 CSV.")
+                else:
+                    loaded = 0
+                    skipped = 0
+                    for _, row in df_up.iterrows():
+                        rtype = str(row.get("response_type", "")).strip()
+                        score_raw = row.get("score", "")
+                        answer_raw = str(row.get("answer", "")).strip()
+                        notes_raw = str(row.get("notes", "")).strip()
+
+                        score = None
+                        if str(score_raw).strip() not in ("", "nan"):
+                            try:
+                                score = int(float(str(score_raw).strip()))
+                                if score not in (1, 2, 3, 4, 5):
+                                    score = None
+                            except ValueError:
+                                score = None
+
+                        answer = answer_raw if answer_raw.lower() in ("yes", "no", "partial") else None
+
+                        if rtype == "maturity_1_5" and score is None:
+                            skipped += 1
+                            continue
+                        if rtype == "yes_no_evidence" and answer is None and score is None:
+                            skipped += 1
+                            continue
+                        if rtype not in ("maturity_1_5", "yes_no_evidence") and not notes_raw and score is None:
+                            skipped += 1
+                            continue
+
+                        key = str(row["capability_id"]) + "|" + str(row["capability_role"]) + "|" + str(row["question"])
+                        responses[key] = {
+                            "capability_id": row["capability_id"],
+                            "capability_name": str(row["capability_name"]),
+                            "domain": str(row["domain"]),
+                            "subdomain": str(row["subdomain"]),
+                            "capability_role": str(row["capability_role"]),
+                            "question": str(row["question"]),
+                            "response_type": rtype,
+                            "score": score,
+                            "answer": answer,
+                            "notes": notes_raw,
+                        }
+                        loaded += 1
+
+                    st.session_state.responses = responses
+                    st.success(f"Loaded {loaded} responses. {skipped} skipped (no valid score/answer).")
+
+            except Exception as e:
+                st.error(f"Could not read file: {e}")
+        
+        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Back to Step 3"):
+                st.session_state.wizard_step = 3
+                st.rerun()
+        with col2:
+            if st.button("Submit Assessment", type="primary"):
+                if answered == 0:
+                    st.error("Please answer at least one question before submitting.")
+                else:
+                    with st.spinner("Saving assessment..."):
+                        try:
+                            db = get_client()
+                            assessment_id = save_assessment(db, st.session_state)
+                            st.session_state.assessment_id = assessment_id
+                            st.success(f"Saved — assessment ID: {assessment_id}")
+                        except Exception as e:
+                            st.error(f"Save failed: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
+                            st.session_state.assessment_id = None
+                    st.session_state.wizard_step = 5
+                    st.rerun()
+                    
+    # -------------------------
+    # STEP 5
+    # -------------------------
+    if st.session_state.wizard_step == 5:
+        st.subheader("Step 5 — Assessment Findings")
+
+        responses = st.session_state.responses
+        if not responses:
+            st.warning("No responses found. Go back to Step 4.")
+            if st.button("Back to Step 4"):
+                st.session_state.wizard_step = 4
+                st.rerun()
+            st.stop()
+
+        # Build scored list
+        scored = []
+        for r in responses.values():
+            if r["response_type"] == "maturity_1_5":
+                s = r["score"] if r["score"] is not None else None
+            elif r["response_type"] == "yes_no_evidence":
+                s = {"Yes": 3, "Partial": 2, "No": 1}.get(r["answer"])
+            else:
+                s = r["score"] if r["score"] is not None else None
+
+            if s is not None:
+                scored.append({
+                    "capability_id": r["capability_id"],
+                    "capability_name": r["capability_name"],
+                    "domain": r["domain"],
+                    "subdomain": r["subdomain"],
+                    "capability_role": r["capability_role"],
+                    "question": r["question"],
+                    "score": s,
+                    "answer": r.get("answer"),
+                    "notes": r.get("notes", ""),
+                })
+
+        if not scored:
+            st.warning("No scored responses found. Ensure questions were answered.")
+            st.stop()
+
+        df = pd.DataFrame(scored)
+
+        # Capability scores
+        cap_scores = (
+            df.groupby(["capability_role", "domain", "subdomain", "capability_name"])["score"]
+            .mean()
+            .reset_index()
+            .rename(columns={"score": "avg_score"})
+            .copy()
+        )
+        cap_scores["avg_score"] = cap_scores["avg_score"].round(1)
+        domain_targets = st.session_state.get("domain_targets", {})
+        cap_scores["target"] = cap_scores["domain"].map(lambda d: domain_targets.get(d, 3))
+        cap_scores["gap"] = cap_scores["target"] - cap_scores["avg_score"]
+        cap_scores["risk"] = cap_scores["avg_score"].apply(
+            lambda x: "🔴 High" if x < 2 else ("🟡 Medium" if x < 3 else "🟢 Low")
+        )
+
+        # Domain scores
+        dom_scores = (
+            df.groupby("domain")["score"]
+            .mean()
+            .reset_index()
+            .rename(columns={"score": "avg_score"})
+            .copy()
+        )
+        dom_scores["avg_score"] = dom_scores["avg_score"].round(1)
+        dom_scores["target"] = dom_scores["domain"].map(lambda d: domain_targets.get(d, 3))
+        dom_scores["gap"] = dom_scores["target"] - dom_scores["avg_score"]
+
+        overall = round(df["score"].mean(), 1)
+
+        if st.session_state.get("assessment_id") and not st.session_state.get("findings_saved"):
+            try:
+                client = get_client()
+                save_findings(
+                    client=client,
+                    assessment_id=st.session_state.assessment_id,
+                    cap_scores=cap_scores.to_dict(orient="records"),
+                    dom_scores=dom_scores.to_dict(orient="records"),
+                    overall_score=overall,
+                )
+                st.session_state.findings_saved = True
+            except Exception as e:
+                st.warning(f"Could not save findings: {e}")
+
+        # ── Summary cards ──
+        st.markdown(f"### Overall maturity: **{overall} / 5**")
+        st.markdown(f"**Client:** {st.session_state.get('client_name', 'Unknown')}")
+        if st.session_state.get("engagement_name"):
+            st.markdown(f"**Engagement:** {st.session_state.engagement_name}")
+        st.markdown(f"**Industry:** {st.session_state.get('client_industry', '')}  |  **Use case:** {st.session_state.use_case_name}")
+        st.markdown(f"**Questions answered:** {len(scored)}")
+        st.markdown(f"**Capabilities assessed:** {cap_scores['capability_name'].nunique()}")
+        st.markdown(f"**Domains covered:** {dom_scores['domain'].nunique()}")
+
+        st.divider()
+
+        # ── Domain scores ──
+        st.markdown("### Domain scores")
+        st.dataframe(dom_scores, width='stretch')
+
+        st.divider()
+
+        # ── Capability scores by role ──
+        st.markdown("### Capability scores")
+        roles_present = [r for r in ["Core", "Upstream", "Downstream"] if r in cap_scores["capability_role"].values]
+        tabs = st.tabs(roles_present)
+
+        for tab, role in zip(tabs, roles_present):
+            with tab:
+                df_role = cap_scores[cap_scores["capability_role"] == role].sort_values("avg_score")
+                st.dataframe(df_role, width='stretch')
+
+        st.divider()
+
+        # ── High risk capabilities ──
+        high_risk = cap_scores[cap_scores["avg_score"] < 2].sort_values("avg_score")
+        if not high_risk.empty:
+            st.markdown("### 🔴 High-risk capabilities")
+            st.dataframe(
+                high_risk[["capability_name", "domain", "capability_role", "avg_score", "gap"]],
+                width='stretch',
+            )
+        else:
+            st.success("No capabilities scored below 2.")
+
+        # ── Executive summary ──
+        st.divider()
+        st.markdown("### Executive summary")
+
+        top_gaps = cap_scores[cap_scores["gap"] > 0].sort_values("gap", ascending=False).head(5)
+
+        # Generate AI narrative (cache in session state so it doesn't regenerate on every rerun)
+        if "findings_narrative" not in st.session_state or not st.session_state.findings_narrative:
+            with st.spinner("Generating executive summary..."):
+                from src.ai_client import generate_findings_narrative
+                try:
+                    narrative = generate_findings_narrative(
+                        use_case_name=st.session_state.use_case_name,
+                        intent_text=st.session_state.get("intent_text", ""),
+                        overall_score=overall,
+                        domain_scores=dom_scores.to_dict(orient="records"),
+                        capability_scores=cap_scores.to_dict(orient="records"),
+                        high_risk_caps=high_risk[["capability_name", "domain", "capability_role", "avg_score"]].to_dict(orient="records"),
+                        top_gaps=top_gaps[["capability_name", "domain", "gap"]].to_dict(orient="records"),
+                    )
+                    st.session_state.findings_narrative = narrative
+                except Exception as e:
+                    st.session_state.findings_narrative = None
+                    st.error(f"Could not generate AI narrative: {e}")
+
+        if st.session_state.get("findings_narrative"):
+            st.markdown(st.session_state.findings_narrative)
+            if st.button("Regenerate Summary"):
+                st.session_state.findings_narrative = None
+                st.rerun()
+
+        st.divider()
+
+        # ── Exports ──
+        st.markdown("### Export")
+        col_a, col_b, col_c = st.columns(3)
+
+        with col_a:
+            st.download_button(
+                "Download Capability Scores (CSV)",
+                data=cap_scores.to_csv(index=False).encode("utf-8"),
+                file_name=f"{st.session_state.use_case_name}_capability_scores.csv".replace(" ", "_"),
+                mime="text/csv",
+            )
+        with col_b:
+            st.download_button(
+                "Download Domain Scores (CSV)",
+                data=dom_scores.to_csv(index=False).encode("utf-8"),
+                file_name=f"{st.session_state.use_case_name}_domain_scores.csv".replace(" ", "_"),
+                mime="text/csv",
+            )
+        with col_c:
+            st.download_button(
+                "Download All Responses (CSV)",
+                data=df.to_csv(index=False).encode("utf-8"),
+                file_name=f"{st.session_state.use_case_name}_responses.csv".replace(" ", "_"),
+                mime="text/csv",
+            )
+
+        st.divider()
+
+        # ── Start over ──
+        if st.button("Start New Assessment"):
+            for k in ["use_case_name", "intent_text", "client_name", "engagement_name",
+                      "client_industry", "client_sector", "client_country",
+                      "core_caps", "upstream_caps", "downstream_caps", "domains_covered",
+                      "questions", "responses", "findings_narrative", "domain_targets",
+                      "assessment_id", "findings_saved"]:
+                if k in ["use_case_name", "intent_text", "client_name", "engagement_name",
+                         "client_industry", "client_sector", "client_country"]:
+                    st.session_state[k] = ""
+                elif k == "responses":
+                    st.session_state[k] = {}
+                elif k in ("findings_narrative",):
+                    st.session_state[k] = None
+                elif k in ("assessment_id",):
+                    st.session_state[k] = None
+                elif k in ("findings_saved",):
+                    st.session_state[k] = False
+                else:
+                    st.session_state[k] = []
+            st.session_state.wizard_step = 1
+            st.rerun()

@@ -1,11 +1,65 @@
 from __future__ import annotations
 
+# -----------------------------
+# Reference data
+# -----------------------------
 def q_list_next_usecases(limit: int = 200) -> str:
     return f"SELECT id, usecase_title FROM Next_UseCase ORDER BY id LIMIT {int(limit)};"
 
 def q_list_tags() -> str:
     return "SELECT id, tag_name, tag_description FROM Next_CapabilityTag ORDER BY tag_name;"
 
+def q_list_capabilities(limit: int = 5000) -> str:
+    return f"""
+    SELECT
+      c.id,
+      c.capability_name,
+      d.domain_name,
+      sd.subdomain_name
+    FROM Next_Capability c
+    LEFT JOIN Next_Domain d ON c.domain_id = d.id
+    LEFT JOIN Next_SubDomain sd ON c.subdomain_id = sd.id
+    ORDER BY c.capability_name, d.domain_name, sd.subdomain_name, c.id
+    LIMIT {int(limit)};
+    """
+
+def q_list_capabilities_for_usecase(usecase_id: int, limit: int = 2000) -> str:
+    return f"""
+    SELECT
+      c.id,
+      c.capability_name,
+      d.domain_name,
+      sd.subdomain_name,
+      MIN(u.src_rank) AS relevance_bucket
+    FROM (
+        SELECT DISTINCT capability_id, 1 AS src_rank
+        FROM Next_RoadmapStep
+        WHERE usecase_id = {int(usecase_id)}
+      UNION
+        SELECT DISTINCT c2.id AS capability_id, 2 AS src_rank
+        FROM Next_UseCaseIntent ui
+        JOIN Next_CapabilityTagMap ctm ON ui.intent_tag_id = ctm.tag_id
+        JOIN Next_Capability c2 ON ctm.capability_id = c2.id
+        WHERE ui.usecase_id = {int(usecase_id)}
+      UNION
+        SELECT c3.id AS capability_id, 3 AS src_rank
+        FROM Next_Capability c3
+    ) u
+    JOIN Next_Capability c ON c.id = u.capability_id
+    LEFT JOIN Next_Domain d ON c.domain_id = d.id
+    LEFT JOIN Next_SubDomain sd ON c.subdomain_id = sd.id
+    GROUP BY c.id, c.capability_name, d.domain_name, sd.subdomain_name
+    ORDER BY
+      relevance_bucket ASC,
+      c.capability_name ASC,
+      d.domain_name ASC,
+      sd.subdomain_name ASC,
+      c.id ASC
+    LIMIT {int(limit)};
+    """
+# -----------------------------
+# Intent
+# -----------------------------
 def q_get_usecase_intent(usecase_id: int) -> str:
     return f"""
     SELECT ui.id, ui.intent_tag_id AS tag_id, t.tag_name, ui.weight, ui.source, ui.created_on
@@ -20,10 +74,13 @@ def w_replace_usecase_intent(usecase_id: int, tag_weights: dict[int, int], sourc
     for tag_id, weight in tag_weights.items():
         statements.append(
             f"INSERT INTO Next_UseCaseIntent (usecase_id, intent_tag_id, weight, source) "
-            f"VALUES ({int(usecase_id)}, {int(tag_id)}, {int(weight)}, '{source.replace(\"'\",\"''\")}');"
+            f"VALUES ({int(usecase_id)}, {int(tag_id)}, {int(weight)}, '{source.replace("'","''")}');"
         )
     return "\n".join(statements)
 
+# -----------------------------
+# Capability discovery
+# -----------------------------
 def q_discover_capabilities(usecase_id: int, limit: int = 50) -> str:
     return f"""
     SELECT
@@ -43,6 +100,9 @@ def q_discover_capabilities(usecase_id: int, limit: int = 50) -> str:
     LIMIT {int(limit)};
     """
 
+# -----------------------------
+# Roadmap
+# -----------------------------
 def w_init_target_maturity(usecase_id: int, dimension_id: int = 1, target_score: int = 3) -> str:
     return f"""
     INSERT INTO Next_TargetMaturity (usecase_id, capability_id, dimension_id, target_score)
@@ -99,6 +159,16 @@ def q_roadmap_phase_counts(usecase_id: int) -> str:
     ORDER BY phase;
     """
 
+def q_roadmap_steps(usecase_id: int, limit: int = 500) -> str:
+    return f"""
+    SELECT rs.phase, rs.priority_score, c.capability_name
+    FROM Next_RoadmapStep rs
+    JOIN Next_Capability c ON rs.capability_id = c.id
+    WHERE rs.usecase_id={int(usecase_id)}
+    ORDER BY rs.phase, rs.priority_score DESC, c.capability_name
+    LIMIT {int(limit)};
+    """
+
 def w_generate_cluster_roadmap(usecase_id: int) -> str:
     return f"""
     DELETE FROM Next_RoadmapClusterStep WHERE usecase_id={int(usecase_id)};
@@ -130,8 +200,10 @@ def q_cluster_roadmap(usecase_id: int) -> str:
     ORDER BY r.phase, r.priority_score DESC;
     """
 
+# -----------------------------
+# Investment optimization (MVP)
+# -----------------------------
 def w_run_investment(usecase_id: int, budget: float) -> str:
-    # MVP: records budget, selects top-20 by benefit/cost (unit cost model)
     return f"""
     INSERT INTO Next_InvestmentRun (usecase_id, budget, cost_model)
     VALUES ({int(usecase_id)}, {float(budget)}, 'default-unit-cost');
@@ -181,6 +253,7 @@ def q_latest_investment_selection(usecase_id: int) -> str:
     SELECT
       c.capability_name,
       s.selected_order,
+      s.estimated_cost,
       s.benefit_score,
       s.benefit_per_cost
     FROM Next_InvestmentSelection s
@@ -189,6 +262,9 @@ def q_latest_investment_selection(usecase_id: int) -> str:
     ORDER BY s.selected_order;
     """
 
+# -----------------------------
+# Executive strategy (MVP)
+# -----------------------------
 def w_generate_executive_strategy(usecase_id: int, title: str) -> str:
     safe_title = title.replace("'", "''")
     return f"""
@@ -224,3 +300,96 @@ def w_generate_executive_strategy(usecase_id: int, title: str) -> str:
 
 def q_latest_executive_strategy(usecase_id: int) -> str:
     return f"SELECT * FROM Next_ExecutiveStrategy WHERE usecase_id={int(usecase_id)} ORDER BY id DESC LIMIT 1;"
+
+# -----------------------------
+# Simulation
+# -----------------------------
+def w_create_scenario(usecase_id: int, name: str, description: str = "") -> str:
+    n = name.replace("'", "''")
+    d = description.replace("'", "''")
+    return f"""
+    INSERT INTO Next_TransformationScenario (scenario_name, description, usecase_id)
+    VALUES ('{n}', '{d}', {int(usecase_id)});
+    """
+
+def q_list_scenarios_for_usecase(usecase_id: int, limit: int = 200) -> str:
+    return f"""
+    SELECT id, scenario_name, description, created_on
+    FROM Next_TransformationScenario
+    WHERE usecase_id={int(usecase_id)}
+    ORDER BY id DESC
+    LIMIT {int(limit)};
+    """
+
+def w_set_scenario_change(scenario_id: int, capability_id: int, dimension_id: int, current_score: int, target_score: int) -> str:
+    return f"""
+    DELETE FROM Next_ScenarioCapabilityChange
+    WHERE scenario_id={int(scenario_id)} AND capability_id={int(capability_id)} AND dimension_id={int(dimension_id)};
+
+    INSERT INTO Next_ScenarioCapabilityChange (scenario_id, capability_id, dimension_id, current_score, target_score)
+    VALUES ({int(scenario_id)}, {int(capability_id)}, {int(dimension_id)}, {int(current_score)}, {int(target_score)});
+    """
+
+def w_run_scenario(scenario_id: int, max_depth: int = 3) -> str:
+    return f"""
+    DELETE FROM Next_ScenarioImpactCapability WHERE scenario_id={int(scenario_id)};
+    DELETE FROM Next_ScenarioImpactCluster WHERE scenario_id={int(scenario_id)};
+
+    WITH RECURSIVE impact_chain(source_capability_id, target_capability_id, impact_score, depth) AS (
+      SELECT
+        sc.capability_id,
+        ci.target_capability_id,
+        (ci.influence_strength * (sc.target_score - sc.current_score)) AS impact_score,
+        1
+      FROM Next_ScenarioCapabilityChange sc
+      JOIN Next_CapabilityInterdependency ci
+        ON sc.capability_id = ci.source_capability_id
+      WHERE sc.scenario_id = {int(scenario_id)}
+
+      UNION ALL
+
+      SELECT
+        ic.source_capability_id,
+        ci.target_capability_id,
+        (ci.influence_strength * ic.impact_score) AS impact_score,
+        ic.depth + 1
+      FROM impact_chain ic
+      JOIN Next_CapabilityInterdependency ci
+        ON ic.target_capability_id = ci.source_capability_id
+      WHERE ic.depth < {int(max_depth)}
+    )
+    INSERT INTO Next_ScenarioImpactCapability (scenario_id, capability_id, impact_score, depth)
+    SELECT {int(scenario_id)}, target_capability_id, SUM(impact_score), MIN(depth)
+    FROM impact_chain
+    GROUP BY target_capability_id;
+
+    INSERT INTO Next_ScenarioImpactCluster (scenario_id, cluster_id, impact_score, capability_count)
+    SELECT
+      {int(scenario_id)},
+      cm.cluster_id,
+      SUM(ic.impact_score),
+      COUNT(*)
+    FROM Next_ScenarioImpactCapability ic
+    JOIN Next_CapabilityClusterMap cm ON ic.capability_id = cm.capability_id
+    WHERE ic.scenario_id = {int(scenario_id)}
+    GROUP BY cm.cluster_id;
+    """
+
+def q_scenario_impacts_cluster(scenario_id: int) -> str:
+    return f"""
+    SELECT cc.cluster_name, ROUND(ic.impact_score,2) AS impact_score, ic.capability_count
+    FROM Next_ScenarioImpactCluster ic
+    JOIN Next_CapabilityCluster cc ON ic.cluster_id = cc.id
+    WHERE ic.scenario_id={int(scenario_id)}
+    ORDER BY ic.impact_score DESC;
+    """
+
+def q_scenario_impacts_capability(scenario_id: int, limit: int = 200) -> str:
+    return f"""
+    SELECT ic.depth, ROUND(ic.impact_score,2) AS impact_score, c.capability_name
+    FROM Next_ScenarioImpactCapability ic
+    JOIN Next_Capability c ON ic.capability_id = c.id
+    WHERE ic.scenario_id={int(scenario_id)}
+    ORDER BY ic.impact_score DESC
+    LIMIT {int(limit)};
+    """

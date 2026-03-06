@@ -1,37 +1,77 @@
 from __future__ import annotations
 
 import os
-import requests
+import sqlite3
+from dotenv import load_dotenv
 from dataclasses import dataclass
 from typing import Any, Dict
+
+load_dotenv()
 
 DEFAULT_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "30"))
 
 @dataclass
 class E2CAFClient:
-    base_url: str
-    timeout: float = DEFAULT_TIMEOUT
+    db_path: str
 
-    def _url(self, path: str) -> str:
-        return self.base_url.rstrip("/") + path
+    def query(self, sql: str, params: list = None) -> dict:
+        """
+        Execute a SELECT query and return rows as a list of dicts.
+        Matches the interface previously used by the FastAPI client.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row  # rows accessible by column name
+            cur = conn.cursor()
+            cur.execute(sql, params or [])
+            rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return {"rows": rows, "count": len(rows)}
+        except Exception as e:
+            return {"rows": [], "count": 0, "error": str(e)}
 
-    def health(self) -> Dict[str, Any]:
-        r = requests.get(self._url("/health"), timeout=self.timeout)
-        r.raise_for_status()
-        return r.json()
+    def write(self, sql: str, params: list = None) -> dict:
+        """
+        Execute an INSERT, UPDATE, or DELETE query.
+        Returns lastrowid and rowcount.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.cursor()
+            cur.execute(sql, params or [])
+            conn.commit()
+            result = {"lastrowid": cur.lastrowid, "rowcount": cur.rowcount}
+            conn.close()
+            return result
+        except Exception as e:
+            return {"lastrowid": None, "rowcount": 0, "error": str(e)}
 
-    def query(self, sql: str) -> Dict[str, Any]:
-        r = requests.post(self._url("/query"), json={"sql": sql}, timeout=self.timeout)
-        r.raise_for_status()
-        return r.json()
+    def write_many(self, sql: str, params_list: list) -> dict:
+        """
+        Execute a batch INSERT using executemany.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.cursor()
+            cur.executemany(sql, params_list)
+            conn.commit()
+            result = {"rowcount": cur.rowcount}
+            conn.close()
+            return result
+        except Exception as e:
+            return {"rowcount": 0, "error": str(e)}
 
-    def write(self, sql: str) -> Dict[str, Any]:
-        r = requests.post(self._url("/write"), json={"sql": sql}, timeout=self.timeout)
-        r.raise_for_status()
-        return r.json()
 
 def get_client() -> E2CAFClient:
-    base_url = os.getenv("API_BASE_URL", "").strip()
-    if not base_url:
-        raise RuntimeError("Missing API_BASE_URL. Set it in .env or environment variables.")
-    return E2CAFClient(base_url=base_url)
+    db_path = os.getenv("E2CAF_DB_PATH")
+    if not db_path:
+        raise ValueError(
+            "E2CAF_DB_PATH not set in environment. "
+            "Add it to your .env file pointing to your SQLite database."
+        )
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(
+            f"SQLite database not found at: {db_path}\n"
+            "Check your E2CAF_DB_PATH in .env"
+        )
+    return E2CAFClient(db_path=db_path)
