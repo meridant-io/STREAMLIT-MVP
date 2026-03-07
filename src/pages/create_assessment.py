@@ -2,10 +2,120 @@ import streamlit as st
 import pandas as pd
 
 from src.e2caf_client import get_client
-from src.assessment_builder import analyze_use_case_readonly
+from src.assessment_builder import analyze_use_case_readonly, CapabilityResult
 from src.assessment_store import save_assessment, save_findings
 from src.question_generator import generate_questions_for_capability
+from src.sql_templates import q_list_next_usecases
 from collections import defaultdict
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers for predefined use case loading
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _load_predefined_usecases(client) -> list[dict]:
+    """Return [{id, usecase_title, usecase_description, business_value}] from Next_UseCase."""
+    res = client.query("""
+        SELECT id, usecase_title,
+               COALESCE(usecase_description, '') AS usecase_description,
+               COALESCE(business_value, '')       AS business_value,
+               COALESCE(owner_role, '')            AS owner_role
+        FROM Next_UseCase
+        ORDER BY usecase_title
+    """)
+    return res.get("rows", [])
+
+
+def _load_predefined_capabilities(client, usecase_id: int):
+    """
+    Load capabilities directly from Next_UseCaseCapabilityImpact for a given use case.
+    Maps impact_weight to role:  5 → Core,  3–4 → Upstream,  1–2 → Downstream.
+    Also loads capability-level target maturity from Next_TargetMaturity (avg across dims).
+    Returns (core, upstream, downstream, domains_covered, cap_count).
+    """
+    res = client.query(f"""
+        SELECT
+            c.id            AS capability_id,
+            c.capability_name,
+            d.domain_name,
+            sd.subdomain_name,
+            uci.impact_weight,
+            uci.maturity_target,
+            uci.feasibility_score,
+            COALESCE((
+                SELECT ROUND(AVG(tm.target_score), 1)
+                FROM Next_TargetMaturity tm
+                WHERE tm.usecase_id = {int(usecase_id)}
+                  AND tm.capability_id = c.id
+            ), uci.maturity_target, 3) AS avg_target_maturity
+        FROM Next_UseCaseCapabilityImpact uci
+        JOIN Next_Capability c  ON c.id  = uci.capability_id
+        JOIN Next_Domain     d  ON d.id  = c.domain_id
+        JOIN Next_SubDomain  sd ON sd.id = c.subdomain_id
+        WHERE uci.usecase_id = {int(usecase_id)}
+        ORDER BY uci.impact_weight DESC NULLS LAST, c.capability_name
+    """)
+    rows = res.get("rows", [])
+
+    core, upstream, downstream = [], [], []
+
+    for r in rows:
+        w = r.get("impact_weight") or 0
+        cap = CapabilityResult(
+            capability_id=int(r["capability_id"]),
+            capability_name=r["capability_name"],
+            domain_name=r["domain_name"],
+            subdomain_name=r["subdomain_name"],
+            score=float(w) / 5.0,           # normalise impact as a proxy relevance score
+            rationale=f"Impact weight: {w}/5 | Target maturity: {r.get('avg_target_maturity', 3)}",
+        )
+        # Attach target maturity as extra attribute for Step 2b
+        cap.__dict__["avg_target_maturity"] = float(r.get("avg_target_maturity") or 3)
+        cap.__dict__["impact_weight"] = w
+
+        if w == 5:
+            core.append(cap)
+        elif w in (3, 4):
+            upstream.append(cap)
+        else:
+            downstream.append(cap)
+
+    # Expand upstream via interdependencies (same logic as analyze_use_case_readonly)
+    all_ids = {c.capability_id for c in core + upstream + downstream}
+    if all_ids:
+        id_list = ",".join(str(i) for i in all_ids)
+        res_up = client.query(f"""
+            SELECT DISTINCT nc.id AS capability_id, nc.capability_name,
+                            nd.domain_name, ns.subdomain_name
+            FROM Next_CapabilityInterdependency dep
+            JOIN Next_Capability nc ON nc.id = dep.source_capability_id
+            JOIN Next_Domain     nd ON nc.domain_id  = nd.id
+            JOIN Next_SubDomain  ns ON nc.subdomain_id = ns.id
+            WHERE dep.target_capability_id IN ({id_list})
+              AND dep.source_capability_id  NOT IN ({id_list})
+        """)
+        for r in res_up.get("rows", []):
+            cap = CapabilityResult(
+                capability_id=int(r["capability_id"]),
+                capability_name=r["capability_name"],
+                domain_name=r["domain_name"],
+                subdomain_name=r["subdomain_name"],
+                score=0.0,
+                rationale="Foundational upstream dependency",
+            )
+            cap.__dict__["avg_target_maturity"] = 3.0
+            cap.__dict__["impact_weight"] = 0
+            upstream.append(cap)
+
+    # Derive domains covered
+    all_caps = core + upstream + downstream
+    domains_covered: dict[str, int] = {}
+    for c in all_caps:
+        domains_covered[c.domain_name] = domains_covered.get(c.domain_name, 0) + 1
+
+    cap_count = len(all_caps)
+    return core, upstream, downstream, domains_covered, cap_count
+
 
 def render():
     st.title("Create Assessment")
@@ -20,6 +130,8 @@ def render():
     st.session_state.setdefault("client_industry", "")
     st.session_state.setdefault("client_sector", "")
     st.session_state.setdefault("client_country", "")
+    st.session_state.setdefault("assessment_mode", "predefined")   # "predefined" | "custom"
+    st.session_state.setdefault("selected_usecase_id", None)
 
     # Storage for step 2 outputs
     st.session_state.setdefault("core_caps", [])
@@ -37,10 +149,104 @@ def render():
     # STEP 1
     # -------------------------
     if st.session_state.wizard_step == 1:
-        st.subheader("Step 1 — Define use case and intent")
+        st.subheader("Step 1 — Client & Use Case")
 
+        # ── Mode toggle ──────────────────────────────────────────────────────
+        mode = st.radio(
+            "Assessment mode",
+            options=["predefined", "custom"],
+            format_func=lambda x: "📋 Select a predefined use case" if x == "predefined" else "✏️ Define a custom use case",
+            index=0 if st.session_state.assessment_mode == "predefined" else 1,
+            horizontal=True,
+            key="mode_radio",
+        )
+        if mode != st.session_state.assessment_mode:
+            # Mode switched — clear use case state so intent doesn't bleed across
+            st.session_state.assessment_mode   = mode
+            st.session_state.selected_usecase_id = None
+            st.session_state.intent_text       = ""
+            st.session_state.use_case_name     = ""
+            st.rerun()
+
+        st.divider()
+
+        # ── PREDEFINED: use case selector lives OUTSIDE the form so changes
+        #    trigger immediate reruns and intent text refreshes live ──────────
+        if mode == "predefined":
+            db = get_client()
+            uc_rows = _load_predefined_usecases(db)
+
+            if not uc_rows:
+                st.warning("No predefined use cases found in the framework.")
+                st.stop()
+
+            uc_options = [{"id": None, "label": "— Select a use case —"}] + [
+                {"id": r["id"], "label": r["usecase_title"]} for r in uc_rows
+            ]
+            uc_labels = [o["label"] for o in uc_options]
+            uc_ids    = [o["id"]    for o in uc_options]
+
+            prior_id  = st.session_state.get("selected_usecase_id")
+            prior_idx = uc_ids.index(prior_id) if prior_id in uc_ids else 0
+
+            selected_idx = st.selectbox(
+                "Use case *",
+                options=range(len(uc_labels)),
+                format_func=lambda i: uc_labels[i],
+                index=prior_idx,
+                key="uc_selectbox",
+            )
+            selected_id    = uc_ids[selected_idx]
+            selected_label = uc_labels[selected_idx]
+
+            # Persist immediately so the form below picks it up
+            if selected_id != st.session_state.get("selected_usecase_id"):
+                st.session_state.selected_usecase_id = selected_id
+                st.session_state.use_case_name = selected_label if selected_id else ""
+                # Clear intent so it gets re-derived below
+                st.session_state.intent_text = ""
+
+            # ── Use case info card ────────────────────────────────────────
+            if selected_id is not None:
+                uc_detail = next((r for r in uc_rows if r["id"] == selected_id), None)
+                if uc_detail:
+                    with st.container(border=True):
+                        cols = st.columns([3, 1])
+                        with cols[0]:
+                            st.markdown(f"**{uc_detail['usecase_title']}**")
+                            if uc_detail.get("usecase_description"):
+                                st.caption(uc_detail["usecase_description"])
+                        with cols[1]:
+                            if uc_detail.get("owner_role"):
+                                st.caption(f"👤 {uc_detail['owner_role']}")
+
+                    if uc_detail.get("business_value"):
+                        st.info(f"💡 **Business value:** {uc_detail['business_value']}")
+
+                    cap_count_res = db.query(
+                        f"SELECT COUNT(*) AS cnt FROM Next_UseCaseCapabilityImpact WHERE usecase_id = {int(selected_id)}"
+                    )
+                    cnt = (cap_count_res.get("rows") or [{}])[0].get("cnt", 0)
+                    st.caption(f"📦 {cnt} capabilities mapped in the framework · interdependency expansion applied in Step 2")
+
+                    # Derive intent prefill from framework text (only if not already customised)
+                    if not st.session_state.intent_text and uc_detail:
+                        parts = []
+                        if uc_detail.get("usecase_description"):
+                            parts.append(uc_detail["usecase_description"])
+                        if uc_detail.get("business_value"):
+                            parts.append(uc_detail["business_value"])
+                        st.session_state.intent_text = " ".join(parts)
+
+        else:
+            selected_id    = None
+            selected_label = ""
+
+        st.divider()
+
+        # ── The submission form — contains client fields + editable intent ─
         with st.form("step1_form", clear_on_submit=False):
-            st.markdown("#### Client")
+            st.markdown("#### Client details")
             col_a, col_b = st.columns(2)
             with col_a:
                 client_name = st.text_input(
@@ -77,44 +283,93 @@ def render():
                     placeholder="e.g., Australia",
                 )
 
-            st.markdown("#### Use Case")
-            use_case_name = st.text_input(
-                "Use case name *",
-                value=st.session_state.use_case_name,
-                placeholder="e.g., AI Enablement",
-            )
+            st.divider()
+            st.markdown("#### Use case & client intent")
+
+            if mode == "custom":
+                use_case_name = st.text_input(
+                    "Use case name *",
+                    value=st.session_state.use_case_name,
+                    placeholder="e.g., AI Enablement",
+                )
+            else:
+                # Display as read-only label — selection is handled above the form
+                st.markdown(
+                    f"**Use case:** {st.session_state.use_case_name or '*— not selected —*'}"
+                )
+                use_case_name = st.session_state.use_case_name
+
+            # Intent text — pre-filled from framework, editable for client context
+            if mode == "predefined":
+                st.caption(
+                    "✏️ The intent below is pre-filled from the framework definition. "
+                    "Edit it to reflect the client's specific objectives, scope, and priorities."
+                )
             intent_text = st.text_area(
-                "What are you trying to achieve? *",
+                "Client intent *" if mode == "custom" else "Client intent (edit to reflect client context) *",
                 value=st.session_state.intent_text,
-                height=140,
+                height=150,
                 placeholder=(
-                    "Example: Establish clear objectives for data governance, secure access, "
-                    "and trusted analytics across the university."
+                    "Describe what the client is trying to achieve — their specific goals, "
+                    "constraints, and priorities for this engagement."
+                    if mode == "custom" else
+                    "Refine the pre-filled intent to reflect the client's specific objectives, "
+                    "scope, and any known constraints or priorities..."
                 ),
             )
 
-            submitted = st.form_submit_button("Analyse Use Case")
+            submitted = st.form_submit_button(
+                "Load Capabilities →" if mode == "predefined" else "Analyse Use Case →",
+                type="primary",
+            )
 
         if submitted:
             if not client_name.strip():
                 st.error("Please enter a client name.")
                 return
-            if not use_case_name.strip():
-                st.error("Please enter a use case name.")
+            if mode == "predefined" and not st.session_state.get("selected_usecase_id"):
+                st.error("Please select a use case from the list above.")
                 return
+            if mode == "custom":
+                if not use_case_name.strip():
+                    st.error("Please enter a use case name.")
+                    return
             if not intent_text.strip():
-                st.error("Please describe what you are trying to achieve.")
+                st.error("Please describe the client's intent.")
                 return
 
-            st.session_state.client_name = client_name.strip()
-            st.session_state.engagement_name = engagement_name.strip()
-            st.session_state.client_industry = industry
-            st.session_state.client_sector = sector
-            st.session_state.client_country = country.strip()
-            st.session_state.use_case_name = use_case_name.strip()
-            st.session_state.intent_text = intent_text.strip()
-            st.session_state.wizard_step = 2
-            st.success("Step 1 saved. Proceeding to Step 2.")
+            st.session_state.client_name        = client_name.strip()
+            st.session_state.engagement_name    = engagement_name.strip()
+            st.session_state.client_industry    = industry
+            st.session_state.client_sector      = sector
+            st.session_state.client_country     = country.strip()
+            st.session_state.use_case_name      = use_case_name.strip()
+            st.session_state.intent_text        = intent_text.strip()
+
+            # ── Predefined: load capabilities immediately, skip to 2b ──────
+            if mode == "predefined":
+                with st.spinner("Loading capabilities from framework..."):
+                    db = get_client()
+                    core, upstream, downstream, domains_covered, cap_count = \
+                        _load_predefined_capabilities(db, st.session_state.selected_usecase_id)
+
+                st.session_state.core_caps       = [c.__dict__ for c in core]
+                st.session_state.upstream_caps   = [c.__dict__ for c in upstream]
+                st.session_state.downstream_caps = [c.__dict__ for c in downstream]
+                st.session_state.domains_covered = domains_covered
+
+                st.success(
+                    f"Loaded **{cap_count}** capabilities for *{use_case_name}* "
+                    f"({len(core)} core · {len(upstream)} upstream · {len(downstream)} downstream). "
+                    f"Skipping capability discovery — proceeding to target maturity."
+                )
+                st.session_state.wizard_step = "2b"
+                st.rerun()
+
+            # ── Custom: proceed to Step 2 for AI discovery ──────────────────
+            else:
+                st.session_state.wizard_step = 2
+                st.rerun()
 
     # -------------------------
     # STEP 2
@@ -754,7 +1009,8 @@ def render():
                       "client_industry", "client_sector", "client_country",
                       "core_caps", "upstream_caps", "downstream_caps", "domains_covered",
                       "questions", "responses", "findings_narrative", "domain_targets",
-                      "assessment_id", "findings_saved"]:
+                      "assessment_id", "findings_saved",
+                      "assessment_mode", "selected_usecase_id"]:
                 if k in ["use_case_name", "intent_text", "client_name", "engagement_name",
                          "client_industry", "client_sector", "client_country"]:
                     st.session_state[k] = ""
@@ -766,6 +1022,10 @@ def render():
                     st.session_state[k] = None
                 elif k in ("findings_saved",):
                     st.session_state[k] = False
+                elif k == "assessment_mode":
+                    st.session_state[k] = "predefined"
+                elif k == "selected_usecase_id":
+                    st.session_state[k] = None
                 else:
                     st.session_state[k] = []
             st.session_state.wizard_step = 1

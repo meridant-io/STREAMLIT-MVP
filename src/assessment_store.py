@@ -39,14 +39,17 @@ def save_assessment(client: E2CAFClient, session: dict) -> int:
     result = client.write(
         """
         INSERT INTO Assessment
-            (client_id, engagement_name, use_case_name, intent_text, status, created_at)
-        VALUES (?, ?, ?, ?, 'in_progress', ?)
+            (client_id, engagement_name, use_case_name, intent_text,
+             usecase_id, assessment_mode, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?)
         """,
         [
             client_id,
             session.get("engagement_name", ""),
             session.get("use_case_name", ""),
             session.get("intent_text", ""),
+            session.get("selected_usecase_id"),          # FK to Next_UseCase — NULL for custom
+            session.get("assessment_mode", "custom"),
             datetime.now().isoformat(),
         ]
     )
