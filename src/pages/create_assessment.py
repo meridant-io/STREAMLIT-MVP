@@ -399,27 +399,6 @@ def render():
 
         st.divider()
 
-        # ── AI Intent Strengthener (optional) ─────────────────────────────
-        with st.expander("✨ Strengthen your intent with AI", expanded=False):
-            st.caption(
-                "Got a rough idea? Type a few words or a vague sentence below "
-                "and let AI rewrite it into a clear, structured intent statement."
-            )
-            rough_intent = st.text_input(
-                "Rough intent",
-                placeholder="e.g., we want to do AI but governance is a mess",
-                key="rough_intent_input",
-                label_visibility="collapsed",
-            )
-            if st.button("Strengthen Intent", type="secondary", disabled=not rough_intent):
-                with st.spinner("Rewriting intent…"):
-                    rewritten = _strengthen_intent_with_ai(
-                        rough_intent,
-                        use_case_name=st.session_state.use_case_name,
-                    )
-                st.session_state.intent_text = rewritten
-                st.rerun()
-
         # ── The submission form — contains client fields + editable intent ─
         with st.form("step1_form", clear_on_submit=False):
             st.markdown("#### Client details")
@@ -494,12 +473,50 @@ def render():
                 ),
             )
 
+            # ── Inline AI intent strengthener ─────────────────────────────
+            st.caption(
+                "✨ Optionally enter a rough idea below and click **Strengthen** "
+                "to let AI rewrite your intent — or leave blank to strengthen what you've typed above."
+            )
+            col_ai, col_btn = st.columns([5, 1])
+            with col_ai:
+                rough_intent = st.text_input(
+                    "Rough idea",
+                    placeholder="e.g., we want to do AI but governance is a mess",
+                    key="rough_intent_input",
+                    label_visibility="collapsed",
+                )
+            with col_btn:
+                strengthen_btn = st.form_submit_button("✨ Strengthen", type="secondary")
+
+            st.divider()
             submitted = st.form_submit_button(
                 "Load Capabilities →" if mode == "predefined" else "Analyse Use Case →",
                 type="primary",
             )
 
-        if submitted:
+        if strengthen_btn:
+            # Save current form field values to session state so they survive the rerun
+            st.session_state.client_name     = client_name.strip()
+            st.session_state.engagement_name = engagement_name.strip()
+            st.session_state.client_industry = industry
+            st.session_state.client_sector   = sector
+            st.session_state.client_country  = country.strip()
+            if mode == "custom":
+                st.session_state.use_case_name = use_case_name.strip()
+            intent_to_strengthen = rough_intent.strip() or intent_text.strip()
+            if intent_to_strengthen:
+                with st.spinner("Rewriting intent…"):
+                    rewritten = _strengthen_intent_with_ai(
+                        intent_to_strengthen,
+                        use_case_name=st.session_state.use_case_name,
+                    )
+                st.session_state.intent_text = rewritten
+                st.rerun()
+            else:
+                st.warning("Please enter an intent or rough idea to strengthen.")
+
+        elif submitted:
             if not client_name.strip():
                 st.error("Please enter a client name.")
                 return
