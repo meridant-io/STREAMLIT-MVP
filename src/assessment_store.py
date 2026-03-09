@@ -196,3 +196,49 @@ def save_findings(
             """,
             rows,
         )
+
+
+def list_assessments(client: E2CAFClient) -> list[dict]:
+    """Return a summary list of all assessments, newest first."""
+    res = client.query("""
+        SELECT a.id, c.client_name, a.engagement_name, a.use_case_name,
+               a.status, a.created_at, a.overall_score
+        FROM Assessment a
+        LEFT JOIN Client c ON a.client_id = c.id
+        ORDER BY a.created_at DESC
+    """)
+    return res.get("rows", [])
+
+
+def load_assessment(client: E2CAFClient, assessment_id: int):
+    """
+    Load a complete assessment from the database.
+    Returns a dict with keys: assessment, capabilities, responses.
+    Returns None if the assessment is not found.
+    """
+    res = client.query(
+        """
+        SELECT a.*, c.client_name, c.industry, c.sector, c.country
+        FROM Assessment a
+        LEFT JOIN Client c ON a.client_id = c.id
+        WHERE a.id = ?
+        """,
+        [int(assessment_id)]
+    )
+    rows = res.get("rows", [])
+    if not rows:
+        return None
+
+    caps_res = client.query(
+        "SELECT * FROM AssessmentCapability WHERE assessment_id = ? ORDER BY capability_role, capability_id",
+        [int(assessment_id)]
+    )
+    resp_res = client.query(
+        "SELECT * FROM AssessmentResponse WHERE assessment_id = ? ORDER BY capability_id",
+        [int(assessment_id)]
+    )
+    return {
+        "assessment":   rows[0],
+        "capabilities": caps_res.get("rows", []),
+        "responses":    resp_res.get("rows", []),
+    }

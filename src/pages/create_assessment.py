@@ -3,10 +3,43 @@ import pandas as pd
 
 from src.e2caf_client import get_client
 from src.assessment_builder import analyze_use_case_readonly, CapabilityResult
-from src.assessment_store import save_assessment, save_findings
+from src.assessment_store import save_assessment, save_findings, list_assessments, load_assessment
 from src.question_generator import generate_questions_for_capability
 from src.sql_templates import q_list_next_usecases
 from collections import defaultdict
+
+
+def _strengthen_intent_with_ai(rough_intent: str, use_case_name: str = "") -> str:
+    """Call Claude to rewrite a vague intent into a clear, structured statement."""
+    from src.ai_client import get_ai_client, _call_with_retry, DEFAULT_MODEL
+    import json
+
+    client = get_ai_client()
+    prompt = f"""You are an enterprise transformation consultant.
+
+A user has written a rough or vague intent for a capability assessment.
+Rewrite it into a clear, specific, well-structured intent statement of 2-3 sentences.
+
+Keep the rewritten intent concise and actionable. It should capture:
+- What the client is trying to achieve
+- The scope or focus areas
+- The desired outcome or priority
+
+Do NOT add information the user didn't imply. Strengthen the language, add structure,
+and make it precise — but stay faithful to the original meaning.
+
+Use case name: {use_case_name or '(not specified)'}
+Original intent: {rough_intent}
+
+Return ONLY the rewritten intent text — no preamble, no quotes, no explanation."""
+
+    response = _call_with_retry(
+        client,
+        model=DEFAULT_MODEL,
+        max_tokens=512,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,6 +150,93 @@ def _load_predefined_capabilities(client, usecase_id: int):
     return core, upstream, downstream, domains_covered, cap_count
 
 
+def _hydrate_session_from_db(data: dict) -> None:
+    """Populate session state from a load_assessment() result dict."""
+    a = data["assessment"]
+    caps = data["capabilities"]
+    responses = data["responses"]
+
+    # Client & assessment header
+    st.session_state.assessment_id       = a["id"]
+    st.session_state.client_name         = a.get("client_name", "")
+    st.session_state.engagement_name     = a.get("engagement_name", "") or ""
+    st.session_state.client_industry     = a.get("industry", "") or ""
+    st.session_state.client_sector       = a.get("sector", "") or ""
+    st.session_state.client_country      = a.get("country", "") or ""
+    st.session_state.use_case_name       = a.get("use_case_name", "")
+    st.session_state.intent_text         = a.get("intent_text", "")
+    st.session_state.assessment_mode     = a.get("assessment_mode", "custom") or "custom"
+    st.session_state.selected_usecase_id = a.get("usecase_id")
+
+    # Capabilities split by role (mapped to CapabilityResult dict shape)
+    def _cap_to_dict(c):
+        return {
+            "capability_id":   c["capability_id"],
+            "capability_name": c["capability_name"],
+            "domain_name":     c["domain_name"],
+            "subdomain_name":  c["subdomain_name"],
+            "score":           c.get("ai_score") or 0.0,
+            "rationale":       c.get("rationale") or "",
+        }
+
+    core       = [_cap_to_dict(c) for c in caps if c["capability_role"] == "Core"]
+    upstream   = [_cap_to_dict(c) for c in caps if c["capability_role"] == "Upstream"]
+    downstream = [_cap_to_dict(c) for c in caps if c["capability_role"] == "Downstream"]
+    st.session_state.core_caps       = core
+    st.session_state.upstream_caps   = upstream
+    st.session_state.downstream_caps = downstream
+
+    # Derive domain_targets and domains_covered from AssessmentCapability rows
+    domain_targets: dict[str, int] = {}
+    domains_covered: dict[str, int] = {}
+    for c in caps:
+        d = c["domain_name"]
+        if d not in domain_targets:
+            domain_targets[d] = c.get("target_maturity") or 3
+        domains_covered[d] = domains_covered.get(d, 0) + 1
+    st.session_state.domain_targets  = domain_targets
+    st.session_state.domains_covered = domains_covered
+
+    # Reconstruct questions list and responses dict from AssessmentResponse rows
+    questions: list[dict] = []
+    response_dict: dict = {}
+    cap_counter: dict[int, int] = {}
+    for r in responses:
+        cap_id  = r["capability_id"]
+        counter = cap_counter.get(cap_id, 0)
+        cap_counter[cap_id] = counter + 1
+        key = f"{cap_id}|{r['question']}|{counter}"
+        response_dict[key] = {
+            "capability_id":   cap_id,
+            "capability_name": r["capability_name"],
+            "domain":          r["domain"],
+            "subdomain":       r["subdomain"],
+            "capability_role": r["capability_role"],
+            "question":        r["question"],
+            "response_type":   r["response_type"],
+            "score":           r.get("score"),
+            "answer":          r.get("answer"),
+            "notes":           r.get("notes") or "",
+        }
+        questions.append({
+            "use_case":        a.get("use_case_name", ""),
+            "capability_id":   cap_id,
+            "capability_name": r["capability_name"],
+            "domain":          r["domain"],
+            "subdomain":       r["subdomain"],
+            "capability_role": r["capability_role"],
+            "question":        r["question"],
+            "response_type":   r["response_type"],
+            "guidance":        "",
+        })
+
+    st.session_state.questions           = questions
+    st.session_state.responses           = response_dict
+    st.session_state.findings_saved      = (a.get("status") == "complete")
+    st.session_state.findings_narrative  = None
+    st.session_state.wizard_step         = 5
+
+
 def render():
     st.title("Create Assessment")
     st.caption("Guided wizard. No database writes for this test.")
@@ -130,7 +250,7 @@ def render():
     st.session_state.setdefault("client_industry", "")
     st.session_state.setdefault("client_sector", "")
     st.session_state.setdefault("client_country", "")
-    st.session_state.setdefault("assessment_mode", "predefined")   # "predefined" | "custom"
+    st.session_state.setdefault("assessment_mode", "custom")   # "predefined" | "custom"
     st.session_state.setdefault("selected_usecase_id", None)
 
     # Storage for step 2 outputs
@@ -144,34 +264,64 @@ def render():
     st.session_state.setdefault("domain_targets", {})
     st.session_state.setdefault("assessment_id", None)
     st.session_state.setdefault("findings_saved", False)
+    st.session_state.setdefault("show_new_form", False)
 
     # -------------------------
     # STEP 1
     # -------------------------
     if st.session_state.wizard_step == 1:
         st.subheader("Step 1 — Client & Use Case")
+
+        if not st.session_state.get("show_new_form", False):
+            # ── LOAD EXISTING ASSESSMENT ──────────────────────────────────────
+            st.markdown(
+                "Select a previously saved assessment to resume or review it, "
+                "or start a new one below."
+            )
+            _db = get_client()
+            assessment_rows = list_assessments(_db)
+            if assessment_rows:
+                def _fmt_assessment(r):
+                    status_label = "Complete" if r["status"] == "complete" else "In Progress"
+                    date = (r.get("created_at") or "")[:10]
+                    label = f"{r['client_name']} — {r['use_case_name']}"
+                    if r.get("engagement_name"):
+                        label = f"{r['client_name']} · {r['engagement_name']} — {r['use_case_name']}"
+                    return f"{label}  ({status_label}, {date})"
+
+                options_map = {_fmt_assessment(r): r["id"] for r in assessment_rows}
+                selected_label = st.selectbox("Saved assessments", list(options_map.keys()))
+                if st.button("Load Assessment", type="primary"):
+                    with st.spinner("Loading assessment..."):
+                        data = load_assessment(_db, options_map[selected_label])
+                    if data:
+                        _hydrate_session_from_db(data)
+                        st.rerun()
+                    else:
+                        st.error("Could not load the selected assessment.")
+            else:
+                st.info("No saved assessments found.")
+
+            st.divider()
+            if st.button("＋ Start New Assessment"):
+                st.session_state.show_new_form = True
+                st.rerun()
+            st.stop()
+
+        # ── NEW ASSESSMENT FORM ───────────────────────────────────────────────
+        if st.button("← Back"):
+            st.session_state.show_new_form = False
+            st.rerun()
+
         st.markdown(
-            "Enter the client details and choose your use case. "
-            "Select a **predefined** use case from the framework or define a **custom** one. "
-            "Fill in the client intent to describe the engagement objectives, then proceed."
+            "Enter the client details, name your use case, and describe the client intent. "
+            "The intent should capture what the client is trying to achieve — their goals, "
+            "scope, and priorities for this engagement."
         )
 
-        # ── Mode toggle ──────────────────────────────────────────────────────
-        mode = st.radio(
-            "Assessment mode",
-            options=["predefined", "custom"],
-            format_func=lambda x: "📋 Select a predefined use case" if x == "predefined" else "✏️ Define a custom use case",
-            index=0 if st.session_state.assessment_mode == "predefined" else 1,
-            horizontal=True,
-            key="mode_radio",
-        )
-        if mode != st.session_state.assessment_mode:
-            # Mode switched — clear use case state so intent doesn't bleed across
-            st.session_state.assessment_mode   = mode
-            st.session_state.selected_usecase_id = None
-            st.session_state.intent_text       = ""
-            st.session_state.use_case_name     = ""
-            st.rerun()
+        # Force custom mode (predefined mode is disabled for now)
+        mode = "custom"
+        st.session_state.assessment_mode = "custom"
 
         st.divider()
 
@@ -248,6 +398,27 @@ def render():
             selected_label = ""
 
         st.divider()
+
+        # ── AI Intent Strengthener (optional) ─────────────────────────────
+        with st.expander("✨ Strengthen your intent with AI", expanded=False):
+            st.caption(
+                "Got a rough idea? Type a few words or a vague sentence below "
+                "and let AI rewrite it into a clear, structured intent statement."
+            )
+            rough_intent = st.text_input(
+                "Rough intent",
+                placeholder="e.g., we want to do AI but governance is a mess",
+                key="rough_intent_input",
+                label_visibility="collapsed",
+            )
+            if st.button("Strengthen Intent", type="secondary", disabled=not rough_intent):
+                with st.spinner("Rewriting intent…"):
+                    rewritten = _strengthen_intent_with_ai(
+                        rough_intent,
+                        use_case_name=st.session_state.use_case_name,
+                    )
+                st.session_state.intent_text = rewritten
+                st.rerun()
 
         # ── The submission form — contains client fields + editable intent ─
         with st.form("step1_form", clear_on_submit=False):
@@ -1040,7 +1211,7 @@ def render():
                       "core_caps", "upstream_caps", "downstream_caps", "domains_covered",
                       "questions", "responses", "findings_narrative", "domain_targets",
                       "assessment_id", "findings_saved",
-                      "assessment_mode", "selected_usecase_id"]:
+                      "assessment_mode", "selected_usecase_id", "show_new_form"]:
                 if k in ["use_case_name", "intent_text", "client_name", "engagement_name",
                          "client_industry", "client_sector", "client_country"]:
                     st.session_state[k] = ""
@@ -1054,8 +1225,10 @@ def render():
                     st.session_state[k] = False
                 elif k == "assessment_mode":
                     st.session_state[k] = "predefined"
-                elif k == "selected_usecase_id":
+                elif k in ("selected_usecase_id",):
                     st.session_state[k] = None
+                elif k == "show_new_form":
+                    st.session_state[k] = False
                 else:
                     st.session_state[k] = []
             st.session_state.wizard_step = 1

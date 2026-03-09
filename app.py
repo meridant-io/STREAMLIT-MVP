@@ -11,7 +11,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("anthropic").setLevel(logging.WARNING)
 logging.getLogger("watchdog").setLevel(logging.WARNING)
 
-from src.pages import create_assessment, dashboard, usecase_workspace, simulation, architecture
+from src.pages import create_assessment, dashboard, architecture
 
 st.set_page_config(page_title="Assessment MVP", layout="wide")
 
@@ -20,16 +20,12 @@ with st.sidebar:
     st.caption("UI for Assessment capability intelligence")
     page = st.radio(
     "Navigate",
-    ["Dashboard", "Create Assessment", "Use Case Workspace", "Simulation", "Architecture"],
+    ["Dashboard", "Create Assessment", "Architecture"],
 )
 
 if page == "Dashboard":
     dashboard.render()
 elif page == "Create Assessment":
     create_assessment.render()
-elif page == "Use Case Workspace":
-    usecase_workspace.render()
-elif page == "Simulation":
-    simulation.render()
 elif page == "Architecture":
     architecture.render()
