@@ -150,6 +150,11 @@ def render():
     # -------------------------
     if st.session_state.wizard_step == 1:
         st.subheader("Step 1 — Client & Use Case")
+        st.markdown(
+            "Enter the client details and choose your use case. "
+            "Select a **predefined** use case from the framework or define a **custom** one. "
+            "Fill in the client intent to describe the engagement objectives, then proceed."
+        )
 
         # ── Mode toggle ──────────────────────────────────────────────────────
         mode = st.radio(
@@ -376,6 +381,11 @@ def render():
     # -------------------------
     if st.session_state.wizard_step == 2:
         st.subheader("Step 2 — Capability discovery (Core / Upstream / Downstream)")
+        st.markdown(
+            "Set the number of core capabilities and click **Run Capability Discovery**. "
+            "The AI will analyse your intent against the E2CAF library and classify capabilities "
+            "as Core, Upstream, or Downstream. Review the results, then continue to set domain targets."
+        )
         st.write(f"**Use case:** {st.session_state.use_case_name}")
         st.write(f"**Intent:** {st.session_state.intent_text}")
 
@@ -445,6 +455,11 @@ def render():
     # -------------------------
     if st.session_state.wizard_step == "2b":
         st.subheader("Step 2b — Set Target Maturity per Domain")
+        st.markdown(
+            "Set the target maturity level for each domain involved in this assessment. "
+            "Use the sliders to adjust — the default is **3 (Defined)**. "
+            "Higher targets flag larger gaps in the findings."
+        )
         st.caption(
             "These targets define what 'good' looks like for each domain in this assessment. "
             "Default is 3 (Defined). Adjust domains where a higher or lower target is appropriate."
@@ -508,6 +523,11 @@ def render():
     # -------------------------
     if st.session_state.wizard_step == 3:
         st.subheader("Step 3 — Generate assessment questions")
+        st.markdown(
+            "Choose which capability tiers to include, set the number of questions per capability, "
+            "and select a question style. Click **Generate Questions** to create the assessment instrument. "
+            "You can download the questions as a CSV for offline completion."
+        )
 
         if not st.session_state.core_caps:
             st.warning("No discovered capabilities found. Go back to Step 2 and run capability discovery.")
@@ -592,6 +612,11 @@ def render():
     # -------------------------
     if st.session_state.wizard_step == 4:
         st.subheader("Step 4 — Run Assessment")
+        st.markdown(
+            "Answer each question by selecting a score or response. Expand a capability to see its questions. "
+            "Alternatively, upload a completed CSV from Step 3 using the **Offline option** below. "
+            "Once you have answered enough questions, click **Submit Assessment** to save."
+        )
 
         if not st.session_state.questions:
             st.warning("No questions found. Go back to Step 3.")
@@ -819,6 +844,11 @@ def render():
     # -------------------------
     if st.session_state.wizard_step == 5:
         st.subheader("Step 5 — Assessment Findings")
+        st.markdown(
+            "Review the assessment results below. Domain and capability scores are shown with gap analysis "
+            "against your targets. An AI-generated executive summary highlights key risks and recommendations. "
+            "Use the export buttons to download scores and responses."
+        )
 
         responses = st.session_state.responses
         if not responses:
