@@ -190,3 +190,208 @@ Do not repeat the raw numbers mechanically — interpret what they mean.
     )
 
     return response.content[0].text.strip()
+
+
+def score_free_text_responses(responses: list[dict]) -> list[dict]:
+    """
+    Uses Claude to assign maturity scores (1–5) to free-text assessment responses.
+
+    Each dict in responses must have at minimum:
+        capability_name, domain, question, answer
+
+    Returns the same list with 'score' (int 1–5) and 'rationale' (str) added.
+    """
+    client = get_ai_client()
+
+    items = "\n\n".join(
+        f"[{i}] Capability: {r.get('capability_name', '')} ({r.get('domain', '')})\n"
+        f"    Question: {r.get('question', '')}\n"
+        f"    Answer: {r.get('answer', '').strip()}"
+        for i, r in enumerate(responses)
+    )
+
+    prompt = f"""You are an enterprise capability maturity assessor.
+
+Score each response below on a 1–5 maturity scale based solely on what the answer implies about the organisation's current capability:
+
+1 = Ad Hoc       — No formal process; reactive, undocumented, inconsistent
+2 = Defined      — Basic process exists but inconsistently applied; limited measurement
+3 = Integrated   — Consistent processes, measured, cross-functional alignment
+4 = Intelligent  — Data-driven, optimised, proactive, continuous measurement
+5 = Adaptive     — Continuously improving; leading practice; industry-leading
+
+Responses to score:
+{items}
+
+Return ONLY a JSON array (no markdown, no preamble) with one object per response, in the same order:
+[
+  {{"index": 0, "score": <integer 1-5>, "rationale": "<one sentence explaining the score>"}},
+  ...
+]
+"""
+
+    response = _call_with_retry(
+        client,
+        model=DEFAULT_MODEL,
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    results = json.loads(raw)
+
+    # Merge scores back into original response dicts
+    score_map = {item["index"]: item for item in results}
+    enriched = []
+    for i, r in enumerate(responses):
+        r = dict(r)
+        if i in score_map:
+            r["score"] = int(score_map[i].get("score", 1))
+            r["rationale"] = score_map[i].get("rationale", "")
+        enriched.append(r)
+    return enriched
+
+
+def generate_roadmap_plan(
+    use_case_name: str,
+    intent_text: str,
+    cap_scores: list[dict],
+    dom_scores: list[dict],
+    overall_score: float,
+    horizon_months: int = 6,
+    scope: str = "Core",
+) -> dict:
+    """
+    Calls Claude to generate a structured gap-closure roadmap.
+
+    Args:
+        use_case_name: Name of the use case being assessed.
+        intent_text: The client intent statement.
+        cap_scores: List of capability score dicts (capability_name, domain,
+                    capability_role, avg_score, target, gap).
+        dom_scores: List of domain score dicts (domain, avg_score, target, gap).
+        overall_score: Overall maturity score (1–5).
+        horizon_months: Transformation horizon in months.
+        scope: Which capability roles to include ("Core", "Core + Upstream", "All").
+
+    Returns:
+        Roadmap dict matching the schema expected by src/roadmap.py.
+    """
+    client = get_ai_client()
+    total_weeks = horizon_months * 4
+
+    # Filter cap_scores by scope
+    scope_roles: dict[str, list[str]] = {
+        "Core":             ["Core"],
+        "Core + Upstream":  ["Core", "Upstream"],
+        "All":              ["Core", "Upstream", "Downstream"],
+    }
+    allowed_roles = scope_roles.get(scope, ["Core"])
+    filtered_caps = sorted(
+        [c for c in cap_scores if c.get("capability_role") in allowed_roles],
+        key=lambda x: x.get("gap", 0),
+        reverse=True,
+    )
+
+    domain_summary = "\n".join(
+        f"- {d['domain']}: current={d['avg_score']}/5, target={d.get('target', 3)}, gap={d['gap']:.1f}"
+        for d in sorted(dom_scores, key=lambda x: x.get("gap", 0), reverse=True)
+    )
+
+    cap_summary = "\n".join(
+        f"- [{c.get('capability_role', '')}] {c['capability_name']} ({c['domain']}): "
+        f"score={c['avg_score']:.1f}, target={c.get('target', 3)}, gap={c.get('gap', 0):.1f}"
+        for c in filtered_caps[:20]
+    )
+
+    prompt = f"""You are a senior enterprise transformation consultant.
+
+A capability maturity assessment has been completed:
+
+USE CASE: {use_case_name}
+INTENT: {intent_text}
+OVERALL MATURITY: {overall_score}/5
+HORIZON: {horizon_months} months ({total_weeks} weeks)
+SCOPE: {scope} capabilities
+
+DOMAIN SCORES (current/target/gap, sorted by gap descending):
+{domain_summary}
+
+TOP CAPABILITY GAPS ({scope} scope, sorted by gap descending):
+{cap_summary}
+
+Design a prioritised gap-closure roadmap with:
+- 3–4 sequential phases that naturally overlap (waterfall planning, agile delivery within each phase)
+- Each phase: 3–6 domain-level initiatives (grouped themes, NOT individual tasks)
+- Total timeline = {total_weeks} weeks
+- Phases should overlap by 2–4 weeks to enable smooth transitions
+
+Return ONLY a valid JSON object with this exact structure (no markdown, no preamble, no explanation):
+{{
+  "total_weeks": {total_weeks},
+  "phases": [
+    {{
+      "id": "P1",
+      "name": "<descriptive phase name>",
+      "start_week": 1,
+      "end_week": <integer>,
+      "rationale": "<1-2 sentence rationale for this phase>",
+      "story": "As a <team/role>, we need to <achieve X> so that <outcome>.",
+      "description": "<2-3 sentence context paragraph describing the phase focus and approach>",
+      "activities": ["<key activity 1>", "<key activity 2>", "<key activity 3>"],
+      "initiatives": [
+        {{
+          "id": "I1",
+          "name": "<initiative name>",
+          "domain": "<domain name exactly as given in the input>",
+          "capability_names": ["<capability name>"],
+          "priority": "<Critical|High|Medium|Low>",
+          "current_score": <float>,
+          "target_score": <float>,
+          "gap": <float>,
+          "start_week": <integer>,
+          "end_week": <integer>,
+          "prerequisites": [],
+          "outcome": "<one-line measurable outcome>"
+        }}
+      ]
+    }}
+  ],
+  "critical_path": ["<initiative name>", "<initiative name>"],
+  "quick_wins": ["<quick win description (< 2-week task)>"]
+}}
+
+Priority rules:
+- Critical: gap > 2.0
+- High: gap 1.5–2.0
+- Medium: gap 1.0–1.5
+- Low: gap < 1.0
+
+Constraints:
+- All week numbers must be between 1 and {total_weeks}
+- Use domain names EXACTLY as given in the input data
+- Quick wins: 2–5 concrete actions completable in under 2 weeks with immediate visible impact
+- Critical path: 3–5 initiative names that represent the key sequential dependencies
+"""
+
+    response = _call_with_retry(
+        client,
+        model=DEFAULT_MODEL,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    return json.loads(raw)

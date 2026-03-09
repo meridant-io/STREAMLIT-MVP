@@ -231,11 +231,13 @@ def _hydrate_session_from_db(data: dict) -> None:
             "guidance":        "",
         })
 
-    st.session_state.questions           = questions
-    st.session_state.responses           = response_dict
-    st.session_state.findings_saved      = (a.get("status") == "complete")
-    st.session_state.findings_narrative  = None
-    st.session_state.wizard_step         = 5
+    st.session_state.questions             = questions
+    st.session_state.responses             = response_dict
+    st.session_state.findings_saved        = (a.get("status") == "complete")
+    st.session_state.findings_narrative    = None
+    st.session_state.responses_ai_scored   = False   # re-score on each load
+    st.session_state.roadmap_data          = None
+    st.session_state.wizard_step           = 5
 
 
 def render():
@@ -266,6 +268,11 @@ def render():
     st.session_state.setdefault("assessment_id", None)
     st.session_state.setdefault("findings_saved", False)
     st.session_state.setdefault("show_new_form", False)
+    st.session_state.setdefault("roadmap_data", None)
+    st.session_state.setdefault("roadmap_timeline_unit", "Sprints (2 wks)")
+    st.session_state.setdefault("roadmap_horizon_months", 6)
+    st.session_state.setdefault("roadmap_scope", "Core")
+    st.session_state.setdefault("responses_ai_scored", False)
 
     # -------------------------
     # STEP 1
@@ -1047,13 +1054,47 @@ def render():
                 st.rerun()
             st.stop()
 
+        # ── Ensure all responses have numeric scores ─────────────────────────
+        if not st.session_state.get("responses_ai_scored"):
+            # 1. Map yes/no/evidence answers to numeric scores
+            for k, v in st.session_state.responses.items():
+                if v.get("score") is not None:
+                    continue
+                if v.get("response_type") == "yes_no_evidence" and v.get("answer"):
+                    mapped = {"Yes": 3, "Partial": 2, "No": 1}.get(v["answer"])
+                    if mapped is not None:
+                        st.session_state.responses[k]["score"] = mapped
+
+            # 2. AI-score any remaining free-text answers that still have no score
+            needs_ai = [
+                (k, v) for k, v in st.session_state.responses.items()
+                if v.get("score") is None and v.get("answer")
+            ]
+            if needs_ai:
+                with st.spinner(f"AI scoring {len(needs_ai)} free-text responses…"):
+                    from src.ai_client import score_free_text_responses
+                    try:
+                        results = score_free_text_responses([v for _, v in needs_ai])
+                        for (k, _), result in zip(needs_ai, results):
+                            st.session_state.responses[k]["score"] = result.get("score")
+                            if result.get("rationale"):
+                                existing_notes = st.session_state.responses[k].get("notes", "")
+                                st.session_state.responses[k]["notes"] = (
+                                    f"{existing_notes} [AI: {result['rationale']}]".strip()
+                                )
+                    except Exception as e:
+                        st.warning(f"Could not AI-score free-text responses: {e}")
+
+            st.session_state.responses_ai_scored = True
+            st.rerun()
+
         # Build scored list
         scored = []
         for r in responses.values():
             if r["response_type"] == "maturity_1_5":
                 s = r["score"] if r["score"] is not None else None
             elif r["response_type"] == "yes_no_evidence":
-                s = {"Yes": 3, "Partial": 2, "No": 1}.get(r["answer"])
+                s = {"Yes": 3, "Partial": 2, "No": 1}.get(r.get("answer")) if r.get("score") is None else r["score"]
             else:
                 s = r["score"] if r["score"] is not None else None
 
@@ -1245,32 +1286,202 @@ def render():
 
         st.divider()
 
-        # ── Start over ──
-        if st.button("Start New Assessment"):
-            for k in ["use_case_name", "intent_text", "client_name", "engagement_name",
-                      "client_industry", "client_sector", "client_country",
-                      "core_caps", "upstream_caps", "downstream_caps", "domains_covered",
-                      "questions", "responses", "findings_narrative", "domain_targets",
-                      "assessment_id", "findings_saved",
-                      "assessment_mode", "selected_usecase_id", "show_new_form"]:
-                if k in ["use_case_name", "intent_text", "client_name", "engagement_name",
-                         "client_industry", "client_sector", "client_country"]:
-                    st.session_state[k] = ""
-                elif k == "responses":
-                    st.session_state[k] = {}
-                elif k in ("findings_narrative",):
-                    st.session_state[k] = None
-                elif k in ("assessment_id",):
-                    st.session_state[k] = None
-                elif k in ("findings_saved",):
-                    st.session_state[k] = False
-                elif k == "assessment_mode":
-                    st.session_state[k] = "predefined"
-                elif k in ("selected_usecase_id",):
-                    st.session_state[k] = None
-                elif k == "show_new_form":
-                    st.session_state[k] = False
-                else:
-                    st.session_state[k] = []
-            st.session_state.wizard_step = 1
-            st.rerun()
+        # ── Navigation ──
+        col_nav_a, col_nav_b = st.columns([1, 1])
+        with col_nav_a:
+            if st.button("Start New Assessment"):
+                for k in ["use_case_name", "intent_text", "client_name", "engagement_name",
+                          "client_industry", "client_sector", "client_country",
+                          "core_caps", "upstream_caps", "downstream_caps", "domains_covered",
+                          "questions", "responses", "findings_narrative", "domain_targets",
+                          "assessment_id", "findings_saved",
+                          "assessment_mode", "selected_usecase_id", "show_new_form",
+                          "roadmap_data", "responses_ai_scored"]:
+                    if k in ["use_case_name", "intent_text", "client_name", "engagement_name",
+                             "client_industry", "client_sector", "client_country"]:
+                        st.session_state[k] = ""
+                    elif k == "responses":
+                        st.session_state[k] = {}
+                    elif k in ("findings_narrative", "assessment_id", "roadmap_data"):
+                        st.session_state[k] = None
+                    elif k in ("findings_saved", "responses_ai_scored"):
+                        st.session_state[k] = False
+                    elif k == "assessment_mode":
+                        st.session_state[k] = "predefined"
+                    elif k in ("selected_usecase_id",):
+                        st.session_state[k] = None
+                    elif k == "show_new_form":
+                        st.session_state[k] = False
+                    else:
+                        st.session_state[k] = []
+                st.session_state.wizard_step = 1
+                st.rerun()
+        with col_nav_b:
+            if st.button("Continue to Roadmap →", type="primary"):
+                st.session_state.wizard_step = 6
+                st.rerun()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 6 — Transformation Roadmap
+    # ─────────────────────────────────────────────────────────────────────────
+    if st.session_state.wizard_step == 6:
+        st.subheader("Step 6 — Transformation Roadmap")
+        st.caption("AI-generated gap-closure roadmap prioritised by maturity gaps and business intent.")
+
+        from src.roadmap import render_roadmap_gantt_html, generate_roadmap_excel, TIMELINE_UNITS
+        from src.ai_client import generate_roadmap_plan
+
+        # ── Need findings data (recompute from responses) ──────────────────
+        responses = st.session_state.get("responses", {})
+        if not responses:
+            st.warning("No assessment responses found. Please complete the assessment in Step 4 first.")
+            if st.button("← Back to Findings"):
+                st.session_state.wizard_step = 5
+                st.rerun()
+        else:
+            # Recompute cap/domain scores (same logic as Step 5)
+            scored = {k: v for k, v in responses.items() if v.get("score") is not None}
+            if not scored:
+                st.warning("This assessment has no numeric scores — the roadmap requires at least some scored responses.")
+                if st.button("← Back to Findings", key="back_findings_no_scores"):
+                    st.session_state.wizard_step = 5
+                    st.rerun()
+                st.stop()
+
+            df = pd.DataFrame(scored.values())
+
+            cap_agg = (
+                df.groupby(["capability_id", "capability_name", "domain", "subdomain", "capability_role"])
+                ["score"].mean()
+                .reset_index()
+                .rename(columns={"score": "avg_score"})
+            )
+            cap_agg["avg_score"] = cap_agg["avg_score"].round(1)
+            domain_targets = st.session_state.get("domain_targets", {})
+            cap_agg["target"] = cap_agg["domain"].map(lambda d: domain_targets.get(d, 3))
+            cap_agg["gap"]    = cap_agg["target"] - cap_agg["avg_score"]
+            cap_scores_list   = cap_agg.to_dict(orient="records")
+
+            dom_agg = (
+                df.groupby("domain")["score"].mean()
+                .reset_index()
+                .rename(columns={"score": "avg_score"})
+            )
+            dom_agg["avg_score"] = dom_agg["avg_score"].round(1)
+            dom_agg["target"] = dom_agg["domain"].map(lambda d: domain_targets.get(d, 3))
+            dom_agg["gap"]    = dom_agg["target"] - dom_agg["avg_score"]
+            dom_scores_list   = dom_agg.to_dict(orient="records")
+
+            overall = round(df["score"].mean(), 1)
+
+            # ── Settings ──────────────────────────────────────────────────────
+            with st.container(border=True):
+                st.markdown("#### Roadmap settings")
+                col_s1, col_s2, col_s3 = st.columns(3)
+
+                with col_s1:
+                    timeline_unit = st.selectbox(
+                        "Timeline unit",
+                        TIMELINE_UNITS,
+                        index=TIMELINE_UNITS.index(st.session_state.roadmap_timeline_unit)
+                        if st.session_state.roadmap_timeline_unit in TIMELINE_UNITS else 0,
+                        key="roadmap_timeline_unit_select",
+                    )
+                    st.session_state.roadmap_timeline_unit = timeline_unit
+
+                with col_s2:
+                    horizon_options = [3, 6, 9, 12, 18, 24]
+                    current_horizon = st.session_state.roadmap_horizon_months
+                    horizon_idx = horizon_options.index(current_horizon) if current_horizon in horizon_options else 1
+                    horizon_months = st.selectbox(
+                        "Horizon (months)",
+                        horizon_options,
+                        index=horizon_idx,
+                        key="roadmap_horizon_select",
+                    )
+                    st.session_state.roadmap_horizon_months = horizon_months
+
+                with col_s3:
+                    scope_options = ["Core", "Core + Upstream", "All"]
+                    current_scope = st.session_state.roadmap_scope
+                    scope_idx = scope_options.index(current_scope) if current_scope in scope_options else 0
+                    roadmap_scope = st.selectbox(
+                        "Capability scope",
+                        scope_options,
+                        index=scope_idx,
+                        key="roadmap_scope_select",
+                    )
+                    st.session_state.roadmap_scope = roadmap_scope
+
+                if st.button("Generate Roadmap", type="primary"):
+                    st.session_state.roadmap_data = None  # clear stale data
+                    with st.spinner("Generating transformation roadmap with AI…"):
+                        try:
+                            roadmap = generate_roadmap_plan(
+                                use_case_name=st.session_state.use_case_name,
+                                intent_text=st.session_state.get("intent_text", ""),
+                                cap_scores=cap_scores_list,
+                                dom_scores=dom_scores_list,
+                                overall_score=overall,
+                                horizon_months=horizon_months,
+                                scope=roadmap_scope,
+                            )
+                            st.session_state.roadmap_data = roadmap
+                        except Exception as e:
+                            st.error(f"Could not generate roadmap: {e}")
+
+            # ── Roadmap display ───────────────────────────────────────────────
+            roadmap = st.session_state.get("roadmap_data")
+            if roadmap:
+                st.divider()
+                st.markdown("### Gap-Closure Roadmap")
+
+                # Gantt chart
+                gantt_html = render_roadmap_gantt_html(roadmap, timeline_unit)
+                n_initiatives = sum(
+                    len(ph.get("initiatives", []))
+                    for ph in roadmap.get("phases", [])
+                )
+                gantt_h = max(400, 200 + n_initiatives * 36 + len(roadmap.get("phases", [])) * 60)
+                components.html(gantt_html, height=gantt_h, scrolling=True)
+
+                st.divider()
+
+                # Phase narratives
+                st.markdown("### Phase Narratives")
+                for phase in roadmap.get("phases", []):
+                    with st.expander(f"**{phase.get('name', '')}**", expanded=True):
+                        if phase.get("story"):
+                            st.markdown(f"*{phase['story']}*")
+                        if phase.get("description"):
+                            st.markdown(phase["description"])
+                        if phase.get("activities"):
+                            st.markdown("**Key activities:**")
+                            for act in phase["activities"]:
+                                st.markdown(f"- {act}")
+
+                st.divider()
+
+                # Export
+                st.markdown("### Export")
+                excel_bytes = generate_roadmap_excel(
+                    roadmap=roadmap,
+                    client_name=st.session_state.get("client_name", ""),
+                    engagement_name=st.session_state.get("engagement_name", ""),
+                    use_case_name=st.session_state.use_case_name,
+                )
+                st.download_button(
+                    "Download Roadmap (Excel)",
+                    data=excel_bytes,
+                    file_name=f"{st.session_state.use_case_name}_roadmap.xlsx".replace(" ", "_"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
+            st.divider()
+
+            # ── Navigation ────────────────────────────────────────────────────
+            col_back, _ = st.columns([1, 3])
+            with col_back:
+                if st.button("← Back to Findings"):
+                    st.session_state.wizard_step = 5
+                    st.rerun()
