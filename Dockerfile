@@ -6,10 +6,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code (includes data/e2caf.db, baked into the image)
 COPY . .
 
-# Mount point for the external SQLite database
+# Default DB path — testers get this automatically; local dev overrides via .env
+ENV E2CAF_DB_PATH=/app/data/e2caf.db
+
+# Mount point for optional local volume override
 RUN mkdir -p /data
 
 EXPOSE 8501
