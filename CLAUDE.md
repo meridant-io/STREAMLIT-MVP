@@ -1,7 +1,7 @@
 # CLAUDE.md — E2CAF Assessment Platform
 
 > Project briefing for Claude Code. Read this at the start of every session.
-> Maintained by: Vernon Rauch | Last updated: 2026-03-12
+> Maintained by: Vernon Rauch | Last updated: 2026-03-13
 
 ---
 
@@ -48,13 +48,15 @@ The platform supports:
 ├── assets/
 │   └── architecture.png
 ├── scripts/
-│   └── seed_test_assessments.py     ← Seeds test assessments (uses AI)
+│   ├── seed_test_assessments.py     ← Original seed script (legacy, uses AI — do not use)
+│   └── seed_v3_assessments.py       ← Current seed script — 6 comprehensive assessments, no AI needed
 └── src/
     ├── tmm_client.py                ← SQLite client: TMMClient (query, write, write_many)
     ├── sql_templates.py             ← SQL query/write helper functions
     ├── ai_client.py                 ← All Anthropic API calls
     ├── assessment_builder.py        ← CapabilityResult dataclass + analyze_use_case_readonly()
-    ├── assessment_store.py          ← Persistence: save_assessment, save_findings,
+    ├── assessment_store.py          ← Persistence: save_assessment, save_findings, save_narrative,
+    │                                   save_recommendations, load_recommendations,
     │                                   list_assessments, load_assessment
     ├── question_generator.py        ← generate_questions_for_capability()
     ├── heatmap.py                   ← Maturity heatmap HTML + Excel export
@@ -106,18 +108,29 @@ The platform supports:
 
 | Table | Purpose |
 |---|---|
-| `Assessment` | Header: client_id, engagement_name, use_case_name, intent_text, usecase_id, assessment_mode, overall_score, status, created_at, completed_at |
+| `Assessment` | Header: client_id, engagement_name, use_case_name, intent_text, usecase_id, assessment_mode, overall_score, status, created_at, completed_at, **findings_narrative** |
 | `AssessmentCapability` | Capabilities selected for assessment with ai_score, rationale, capability_role, target_maturity |
 | `AssessmentResponse` | Individual question responses (response_type, score, answer, notes) |
-| `AssessmentFinding` | Per-capability and per-domain gap findings (finding_type='capability'\|'domain', avg_score, target_maturity, gap, risk_level) |
-| `AssessmentRecommendation` | AI-generated gap recommendations (priority_tier, effort_estimate, recommended_actions JSON, enabling_dependencies JSON, success_indicators JSON, hpe_relevance, narrative). Created via `CREATE TABLE IF NOT EXISTS` on first engine run. |
+| `AssessmentFinding` | Per-capability and per-domain gap findings (finding_type='capability'\|'domain', avg_score, target_maturity, gap, risk_level, subdomain) |
+| `AssessmentRecommendation` | AI-generated gap recommendations. Created via `CREATE TABLE IF NOT EXISTS` on first engine run. **See exact column list below.** |
 | `Client` | Client master: client_name, industry, sector, country |
+
+### AssessmentRecommendation — Exact Column List
+**Critical:** the live DB schema differs from what you might expect. Always use these exact names:
+```
+id, assessment_id, capability_id, capability_name, domain, capability_role,
+current_score, target_maturity, gap,
+priority_tier, effort_estimate,
+recommended_actions (JSON TEXT), enabling_dependencies (JSON TEXT), success_indicators (JSON TEXT),
+hpe_relevance, narrative, created_at
+```
+**Not present:** `subdomain`, `recommendation_headline`, `target_score`, `current_state_narrative`, `generated_at`, `model_used`
 
 ### Important DB Notes
 - `Next_CapabilityLevel` has duplicate rows — **always filter `WHERE level_name IS NOT NULL`**
 - `Next_UseCaseCapabilityImpact.impact_weight` has `CHECK BETWEEN 1 AND 5`
 - `Next_CapabilityTagMap` and `Next_CapabilityClusterMap` require explicit `id` on INSERT
-- `Assessment.usecase_id` and `Assessment.assessment_mode` were added via ALTER TABLE
+- `Assessment.usecase_id`, `assessment_mode`, and `findings_narrative` were added via ALTER TABLE; `_ensure_narrative_column()` in `assessment_store.py` handles the migration inline
 - `AssessmentRecommendation` is created inline (`CREATE TABLE IF NOT EXISTS`) by `recommendation_engine.py` on first run — no manual migration needed
 - Roadmap is NOT persisted to the DB — held in session state only (`roadmap_data`)
 
@@ -204,7 +217,7 @@ The primary workflow. Steps tracked via `st.session_state.wizard_step`.
 | 3 | `3` | Question style selection + AI question generation + review |
 | 4 | `4` | Response capture (online or offline; maturity 1–5 / yes-no-evidence / free text) |
 | 5 | `5` | Findings: domain/capability scores, maturity heatmap, AI executive narrative, gap table, export |
-| 5b | `"5b"` | Gap recommendations: AI per-capability recommendations with P1/P2/P3 priority, actions, dependencies, HPE relevance. Optional — can be skipped or run later |
+| 5b | `"5b"` | Gap recommendations: AI per-capability recommendations with P1/P2/P3 priority, actions, dependencies, success indicators. Optional — can be skipped or run later |
 | 6 | `6` | Transformation roadmap — AI-generated Gantt with Excel export. Uses Step 5b recommendations when available to structure phases; falls back to scores-only when skipped |
 
 ### Session State Keys
@@ -215,6 +228,8 @@ assessment_mode ('predefined'/'custom'), selected_usecase_id (int|None),
 core_caps, upstream_caps, downstream_caps, domains_covered,
 domain_targets, questions, responses, findings_narrative,
 assessment_id, findings_saved, responses_ai_scored,
+confirm_regen_narrative,          ← bool: True while confirm dialog is shown for narrative regen
+confirm_regen_recs,               ← bool: True while confirm dialog is shown for rec regen
 recommendations (list|None),
 roadmap_data (dict|None), roadmap_timeline_unit, roadmap_horizon_months, roadmap_scope
 ```
@@ -238,12 +253,20 @@ All response types are normalised to numeric 1–5 before Step 5 renders (flagge
 | Function | Purpose | Output |
 |---|---|---|
 | `rank_capabilities_by_intent()` | Ranks candidate capabilities by relevance to intent | JSON array with ai_score + rationale |
-| `generate_findings_narrative()` | Executive summary of assessment findings | Plain text, 3–4 paragraphs |
+| `generate_findings_narrative(client_name, client_industry, client_country, client_stated_context, ...)` | Executive summary of assessment findings, grounded in client context | Plain text, 3–4 paragraphs |
 | `score_free_text_responses()` | Scores free-text responses 1–5 using maturity rubric | Same list with score + rationale added |
-| `generate_gap_recommendations()` | Per-capability gap recommendation grounded in level descriptors, responses, and dependency context | JSON dict with recommended_actions, enabling_dependencies, success_indicators, hpe_relevance, narrative |
-| `generate_roadmap_plan()` | Structured gap-closure roadmap (phases → initiatives). Accepts optional `recommendations` list to structure phases by P1/P2/P3 tier | JSON dict (see schema below) |
+| `generate_gap_recommendations(client_country, client_stated_context, ...)` | Per-capability gap recommendation grounded in level descriptors, actual responses, and dependency context | JSON dict with recommended_actions, enabling_dependencies, success_indicators, narrative |
+| `generate_roadmap_plan(client_name, client_industry, client_country, client_stated_context, ...)` | Structured gap-closure roadmap (phases → initiatives). Accepts optional `recommendations` list to structure phases by P1/P2/P3 tier | JSON dict (see schema below) |
 
 `generate_questions_for_capability()` lives in **`src/question_generator.py`**, not ai_client.py.
+
+### AI Grounding Rules (all client-facing functions)
+All three client-facing AI functions (`generate_findings_narrative`, `generate_gap_recommendations`, `generate_roadmap_plan`) include:
+1. **CLIENT-STATED CONTEXT block** — verbatim answer/notes text extracted from assessment responses, injected into the prompt so the AI grounds recommendations in what the client actually said
+2. **Technology grounding rule** — hard prohibition: do NOT name specific vendors, cloud providers, platforms, or products unless that exact name appears verbatim in the CLIENT-STATED CONTEXT
+3. **Industry + country context** — client_industry and client_country passed to all three functions for market-appropriate framing
+
+`_build_client_stated_context(responses: dict) -> str` is a module-level helper in `create_assessment.py` that deduplicates and formats response answer/notes for injection.
 
 ### Roadmap JSON Schema (from `generate_roadmap_plan()`)
 ```json
@@ -274,7 +297,7 @@ All response types are normalised to numeric 1–5 before Step 5 renders (flagge
 
 ## Recommendation Engine (`src/recommendation_engine.py`)
 
-### `build_recommendations(db, assessment_id, cap_scores, client_industry, intent_text, usecase_id, max_caps, on_progress)`
+### `build_recommendations(db, assessment_id, cap_scores, client_industry, intent_text, usecase_id, max_caps, on_progress, client_country)`
 For each gap capability (gap > 0, sorted by gap desc, Core first, capped at `max_caps`):
 1. Determines `priority_tier` (P1/P2/P3) and `effort_estimate` deterministically before the AI call
 2. Loads from DB: `Next_CapabilityLevel` L(current) and L(target) descriptors (`capability_state` + `key_indicators`), `AssessmentResponse` for this capability, Foundational dependencies from `Next_CapabilityInterdependency` (interaction_type_id=1), `Next_RoadmapStep` framework phase if `usecase_id` provided
@@ -323,11 +346,18 @@ Priority badge colours: Critical=#DC2626, High=#EA580C, Medium=#D97706, Low=#16A
 | Function | Table(s) | Notes |
 |---|---|---|
 | `save_assessment()` | `Client`, `Assessment`, `AssessmentCapability`, `AssessmentResponse` | Creates records; returns assessment_id |
-| `save_findings()` | `Assessment` (UPDATE), `AssessmentFinding` (INSERT) | Updates overall_score + status; appends findings rows |
-| `save_recommendations()` | `AssessmentRecommendation` | Idempotent — DELETE then INSERT; JSON-encodes list fields |
-| `load_recommendations()` | `AssessmentRecommendation` | JSON-decodes list fields; returns [] if none exist |
+| `save_findings()` | `Assessment` (UPDATE), `AssessmentFinding` (INSERT) | Updates overall_score + status; calls `_ensure_narrative_column()` inline |
+| `save_narrative(client, assessment_id, narrative)` | `Assessment` (UPDATE) | Persists executive summary to `findings_narrative` column; calls `_ensure_narrative_column()` |
+| `save_recommendations()` | `AssessmentRecommendation` | Idempotent — DELETE then INSERT; JSON-encodes list fields; uses actual DB column names |
+| `load_recommendations()` | `AssessmentRecommendation` | JSON-decodes list fields; ensures `narrative` key is always set; returns [] if none exist |
 | `list_assessments()` | `Assessment`, `Client` | Returns all assessments newest-first |
 | `load_assessment()` | `Assessment`, `AssessmentCapability`, `AssessmentResponse` | Returns dict with assessment/capabilities/responses |
+
+**Column mapping for `save_recommendations()` (in-memory → DB):**
+- `r["narrative"]` → `narrative` column
+- `r["target_maturity"]` → `target_maturity` column
+- Timestamp → `created_at` column
+- `hpe_relevance` written as NULL (field removed from AI output)
 
 **Note:** Roadmap is generated in-session and is NOT persisted to the database.
 
@@ -348,23 +378,55 @@ Priority badge colours: Critical=#DC2626, High=#EA580C, Medium=#D97706, Low=#16A
 | 5b — Gap recommendations (per-capability, AI-grounded) | ✅ Complete |
 | 6 — Transformation roadmap (Gantt + Excel) | ✅ Complete |
 
+**Step 5 — Findings & Narrative:**
+- Executive summary narrative is generated by `generate_findings_narrative()` and persisted to `Assessment.findings_narrative` via `save_narrative()`
+- On reload, `_hydrate_session_from_db()` restores `findings_narrative` from DB into session state
+- Regenerate button shows confirm-before-overwrite dialog (`confirm_regen_narrative` flag in session state); user must click "Yes, regenerate" to proceed
+- `client_name`, `client_industry`, `client_country`, and `_build_client_stated_context()` are all passed to `generate_findings_narrative()`
+
 **Step 5b implementation:**
 - Optional step — accessible via "Generate Recommendations →" from Step 5; can also be skipped
+- **Priority scope selector**: radio — "All priorities" / "P1 only" / "P1 + P2" — pre-filters caps before AI calls using `_preview_tier()` helper (mirrors engine logic)
+- **Cap count slider**: 1 to `eligible_count`, default `min(eligible_count, 20)`; Generate disabled when 0
 - `build_recommendations()` in `recommendation_engine.py` orchestrates per-capability AI calls
 - Priority tier (P1/P2/P3) determined deterministically before AI call; effort_estimate derived from gap size
-- Each capability's AI call receives: L(current) and L(target) descriptors, actual scored responses + notes, Foundational dependency chain, framework phase from `Next_RoadmapStep`
+- Each capability's AI call receives: L(current) and L(target) descriptors, actual scored responses + notes, Foundational dependency chain, framework phase from `Next_RoadmapStep`, client_country
 - Progress callback shows which capability is being analysed
 - Results cached in `st.session_state.recommendations`; persisted to `AssessmentRecommendation` via `save_recommendations()`
 - On reload, loaded from DB via `load_recommendations()` if session is empty
 - UI: expandable cards (P1 expanded by default), priority filter, CSV + JSON export
-- Regenerate button clears and re-runs
+- Regenerate button shows confirm-before-overwrite dialog (`confirm_regen_recs` flag); user must confirm
 
 **Step 6 implementation:**
 - Detects whether `st.session_state.recommendations` is populated
 - If recommendations present: passes them to `generate_roadmap_plan(recommendations=...)` → AI uses P1/P2/P3 tiers to assign phases and uses recommended actions for initiative content
 - If no recommendations (skipped): falls back to scores-only roadmap (original behaviour)
 - User selects timeline unit, horizon (months), scope (Core / Core+Upstream / All)
+- `client_name`, `client_industry`, `client_country`, and `_build_client_stated_context()` are all passed to `generate_roadmap_plan()`
 - Export via `generate_roadmap_excel()` → 3-sheet XLSX download
+
+### Test Assessments in DB (`scripts/seed_v3_assessments.py`)
+
+Run with: `docker compose exec app python scripts/seed_v3_assessments.py`
+Idempotent — skips any assessment whose client_name + use_case_name already exists.
+Pass `--clean` to first remove the six seeded clients by name before re-inserting (useful when re-seeding from scratch).
+
+| ID | Client | Country | Use Case | Q-Type | Domains | Caps | Responses |
+|---|---|---|---|---|---|---|---|
+| 21 | Deutsche Bank AG | Germany | General IT Readiness (UC 31) | `maturity_1_5` | 9 | 53 | 159 |
+| 22 | Ramsay Health Care | Australia | General IT Readiness (UC 31) | `yes_no_evidence` | 9 | 53 | 159 |
+| 23 | Siemens AG | Germany | Operating Model Modernization (UC 27) | `maturity_1_5` | 7 | 55 | 165 |
+| 24 | Qatar National Bank | Qatar | AI Readiness (UC 30) | **mixed** (all 3 types) | 8 | 38 | 114 |
+| 25 | Norsk Hydro ASA | Norway | General IT Readiness (UC 31) | `free_text` | 9 | 53 | 159 |
+| 26 | Singapore Airlines | Singapore | Datacenter Transformation (UC 32) | `maturity_1_5` | 6 | 30 | 90 |
+
+Each assessment has: 3 questions per capability, 8 gap recommendations, executive summary narrative, domain findings + capability findings rows.
+
+**Use case domain coverage:**
+- UC 31 (General IT Readiness): 9 domains × 6 caps — Strategy & Governance, Security, People, Applications, Data, DevOps, Innovation, Operations, AI & Cognitive Systems
+- UC 27 (Operating Model): 7 domains, all caps (Strategy & Governance=16, People=17, Applications=11, Security=5, DevOps=3, Operations=2, AI=1)
+- UC 30 (AI Readiness): 8 domains, all caps (AI & Cognitive Systems=10, Data=12, People=7, Security=5, + 4 others)
+- UC 32 (Datacenter Transformation): 6 domains, all caps (Security=18, Applications=4, Data=3, People=3, + 2 others)
 
 ### Pending Work
 - `src/pages/simulation.py` — impact heatmap (domain × capability grid). `Next_ScenarioImpactCapability` is empty; `Next_ScenarioCapabilityChange` has data

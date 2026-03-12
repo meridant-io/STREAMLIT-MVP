@@ -1034,13 +1034,23 @@ def main() -> None:
     """)
     conn.commit()
 
-    # Optionally remove previous v2 seeded assessments (IDs 9–14)
+    # Optionally remove all seeded assessments by client name (idempotent re-seed)
     if clean:
-        print("--clean: removing previous seeded assessments (IDs 9-14)...")
-        for aid in range(9, 15):
-            for tbl in ("AssessmentRecommendation", "AssessmentFinding",
-                        "AssessmentResponse", "AssessmentCapability", "Assessment"):
-                cur.execute(f"DELETE FROM {tbl} WHERE {'id' if tbl == 'Assessment' else 'assessment_id'} = ?", [aid])
+        client_names = [s["client_name"] for s in ASSESSMENTS]
+        print(f"--clean: removing existing seeded assessments for {len(client_names)} clients...")
+        for client_name in client_names:
+            cur.execute("""
+                SELECT a.id FROM Assessment a
+                JOIN Client c ON a.client_id = c.id
+                WHERE c.client_name = ?
+            """, [client_name])
+            for row in cur.fetchall():
+                aid = row["id"]
+                for tbl in ("AssessmentRecommendation", "AssessmentFinding",
+                            "AssessmentResponse", "AssessmentCapability"):
+                    cur.execute(f"DELETE FROM {tbl} WHERE assessment_id = ?", [aid])
+                cur.execute("DELETE FROM Assessment WHERE id = ?", [aid])
+            cur.execute("DELETE FROM Client WHERE client_name = ?", [client_name])
         conn.commit()
         print("  Done.")
 
