@@ -4,7 +4,7 @@ import pandas as pd
 
 from src.tmm_client import get_client
 from src.assessment_builder import analyze_use_case_readonly, CapabilityResult
-from src.assessment_store import save_assessment, save_findings, list_assessments, load_assessment
+from src.assessment_store import save_assessment, save_findings, save_narrative, list_assessments, load_assessment
 from src.question_generator import generate_questions_for_capability
 from src.sql_templates import q_list_next_usecases
 from collections import defaultdict
@@ -234,10 +234,35 @@ def _hydrate_session_from_db(data: dict) -> None:
     st.session_state.questions             = questions
     st.session_state.responses             = response_dict
     st.session_state.findings_saved        = (a.get("status") == "complete")
-    st.session_state.findings_narrative    = None
+    st.session_state.findings_narrative    = a.get("findings_narrative") or None
     st.session_state.responses_ai_scored   = False   # re-score on each load
+    st.session_state.confirm_regen_narrative = False
+    st.session_state.confirm_regen_recs      = False
     st.session_state.roadmap_data          = None
     st.session_state.wizard_step           = 5
+
+
+def _build_client_stated_context(responses: dict) -> str:
+    """
+    Concatenate all free-text answer and notes values from the responses dict
+    into a single string for use as the CLIENT-STATED CONTEXT in AI prompts.
+
+    This is the ONLY source the AI is permitted to draw specific vendor/tool/
+    product names from — preventing hallucination of technology specifics.
+    Returns a formatted multi-line string, or an empty string if no text exists.
+    """
+    texts = [
+        t.strip()
+        for v in responses.values()
+        for t in (v.get("answer", "") or "", v.get("notes", "") or "")
+        if t and t.strip()
+    ]
+    if not texts:
+        return ""
+    # Deduplicate while preserving order
+    seen: set = set()
+    unique = [t for t in texts if not (t in seen or seen.add(t))]  # type: ignore[func-returns-value]
+    return "\n".join(f"  - {t}" for t in unique)
 
 
 def render():
@@ -274,6 +299,8 @@ def render():
     st.session_state.setdefault("roadmap_scope", "Core")
     st.session_state.setdefault("responses_ai_scored", False)
     st.session_state.setdefault("recommendations", None)
+    st.session_state.setdefault("confirm_regen_narrative", False)
+    st.session_state.setdefault("confirm_regen_recs", False)
 
     # -------------------------
     # STEP 1
@@ -1219,8 +1246,8 @@ def render():
 
         top_gaps = cap_scores[cap_scores["gap"] > 0].sort_values("gap", ascending=False).head(5)
 
-        # Generate AI narrative (cache in session state so it doesn't regenerate on every rerun)
-        if "findings_narrative" not in st.session_state or not st.session_state.findings_narrative:
+        # Auto-generate if no narrative exists and user is not in mid-confirm state
+        if not st.session_state.get("findings_narrative") and not st.session_state.get("confirm_regen_narrative"):
             with st.spinner("Generating executive summary..."):
                 from src.ai_client import generate_findings_narrative
                 try:
@@ -1235,17 +1262,40 @@ def render():
                         client_name=st.session_state.get("client_name", ""),
                         client_industry=st.session_state.get("client_industry", ""),
                         client_country=st.session_state.get("client_country", ""),
+                        client_stated_context=_build_client_stated_context(
+                            st.session_state.get("responses", {})
+                        ),
                     )
                     st.session_state.findings_narrative = narrative
+                    # Persist to DB — overwritten each time a fresh version is generated
+                    if st.session_state.get("assessment_id"):
+                        try:
+                            save_narrative(get_client(), st.session_state.assessment_id, narrative)
+                        except Exception:
+                            pass  # non-critical — summary still visible in session
                 except Exception as e:
                     st.session_state.findings_narrative = None
                     st.error(f"Could not generate AI narrative: {e}")
 
         if st.session_state.get("findings_narrative"):
             st.markdown(st.session_state.findings_narrative)
-            if st.button("Regenerate Summary"):
-                st.session_state.findings_narrative = None
-                st.rerun()
+            if not st.session_state.get("confirm_regen_narrative"):
+                if st.button("Regenerate Summary"):
+                    st.session_state.confirm_regen_narrative = True
+                    st.rerun()
+            else:
+                st.warning("⚠️ This will replace the saved executive summary. Are you sure?")
+                col_yn1, col_yn2, _ = st.columns([1, 1, 5])
+                with col_yn1:
+                    if st.button("Yes, regenerate", type="primary", key="confirm_regen_narr_yes"):
+                        # Clear session only — DB will be overwritten once new narrative is saved
+                        st.session_state.findings_narrative = None
+                        st.session_state.confirm_regen_narrative = False
+                        st.rerun()
+                with col_yn2:
+                    if st.button("Cancel", key="confirm_regen_narr_cancel"):
+                        st.session_state.confirm_regen_narrative = False
+                        st.rerun()
 
         st.divider()
 
@@ -1300,7 +1350,8 @@ def render():
                           "questions", "responses", "findings_narrative", "domain_targets",
                           "assessment_id", "findings_saved",
                           "assessment_mode", "selected_usecase_id", "show_new_form",
-                          "roadmap_data", "responses_ai_scored", "recommendations"]:
+                          "roadmap_data", "responses_ai_scored", "recommendations",
+                          "confirm_regen_narrative", "confirm_regen_recs"]:
                     if k in ["use_case_name", "intent_text", "client_name", "engagement_name",
                              "client_industry", "client_sector", "client_country"]:
                         st.session_state[k] = ""
@@ -1309,7 +1360,8 @@ def render():
                     elif k in ("findings_narrative", "assessment_id", "roadmap_data",
                                "recommendations"):
                         st.session_state[k] = None
-                    elif k in ("findings_saved", "responses_ai_scored"):
+                    elif k in ("findings_saved", "responses_ai_scored",
+                               "confirm_regen_narrative", "confirm_regen_recs"):
                         st.session_state[k] = False
                     elif k == "assessment_mode":
                         st.session_state[k] = "predefined"
@@ -1446,8 +1498,31 @@ def render():
 
             col_r1, col_r2 = st.columns([3, 1])
             with col_r2:
-                run_label = "Regenerate" if recs else "Generate Recommendations"
-                run_btn = st.button(run_label, type="primary", disabled=(max_caps == 0))
+                if not recs:
+                    # First run — no confirmation needed
+                    run_btn = st.button("Generate Recommendations", type="primary", disabled=(max_caps == 0))
+                elif not st.session_state.get("confirm_regen_recs"):
+                    # Existing recs — ask for confirmation first
+                    run_btn = False
+                    if st.button("Regenerate", type="primary", disabled=(max_caps == 0)):
+                        st.session_state.confirm_regen_recs = True
+                        st.rerun()
+                else:
+                    # Waiting for user to confirm in the dialog below
+                    run_btn = False
+
+        # Confirm-before-overwrite dialog (rendered outside the settings container)
+        if recs and st.session_state.get("confirm_regen_recs"):
+            st.warning("⚠️ This will overwrite the saved recommendations for this assessment. Are you sure?")
+            col_yn1, col_yn2, _ = st.columns([1, 1, 5])
+            with col_yn1:
+                if st.button("Yes, overwrite", type="primary", key="confirm_overwrite_recs"):
+                    st.session_state.confirm_regen_recs = False
+                    run_btn = True
+            with col_yn2:
+                if st.button("Cancel", key="cancel_overwrite_recs"):
+                    st.session_state.confirm_regen_recs = False
+                    st.rerun()
 
         if run_btn:
             st.session_state.recommendations = None
@@ -1694,6 +1769,9 @@ def render():
                                 client_name=st.session_state.get("client_name", ""),
                                 client_industry=st.session_state.get("client_industry", ""),
                                 client_country=st.session_state.get("client_country", ""),
+                                client_stated_context=_build_client_stated_context(
+                                    st.session_state.get("responses", {})
+                                ),
                             )
                             st.session_state.roadmap_data = roadmap
                         except Exception as e:

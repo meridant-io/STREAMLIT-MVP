@@ -5,6 +5,30 @@ from datetime import datetime
 from src.tmm_client import TMMClient
 
 
+def _ensure_narrative_column(client: TMMClient) -> None:
+    """
+    Add findings_narrative column to Assessment if it doesn't already exist.
+    SQLite raises OperationalError on duplicate ADD COLUMN — we suppress it.
+    This is a one-time inline migration, safe to call on every write path.
+    """
+    try:
+        client.write("ALTER TABLE Assessment ADD COLUMN findings_narrative TEXT", [])
+    except Exception:
+        pass  # Column already exists
+
+
+def save_narrative(client: TMMClient, assessment_id: int, narrative: str) -> None:
+    """
+    Persist (or overwrite) the executive summary narrative for an assessment.
+    Creates the column if this is the first time it's been used.
+    """
+    _ensure_narrative_column(client)
+    client.write(
+        "UPDATE Assessment SET findings_narrative = ? WHERE id = ?",
+        [narrative, assessment_id],
+    )
+
+
 def save_assessment(client: TMMClient, session: dict) -> int:
     """
     Persists a completed assessment to the database.
@@ -144,6 +168,9 @@ def save_findings(
     Uses a single AssessmentFinding table with finding_type = 'capability' | 'domain'.
     """
 
+    # Ensure findings_narrative column exists (one-time inline migration)
+    _ensure_narrative_column(client)
+
     # ── Update overall score, status, and completed_at on Assessment header ──
     client.write(
         """
@@ -208,6 +235,11 @@ def save_recommendations(
     Persists AI-generated recommendations for an assessment.
     Idempotent — clears existing rows then re-inserts.
     JSON-encodes list fields before storage.
+
+    Column mapping (in-memory → DB):
+      target_maturity        → target_score
+      narrative              → current_state_narrative
+      (derived)              → recommendation_headline
     """
     client.write(
         "DELETE FROM AssessmentRecommendation WHERE assessment_id = ?",
@@ -221,20 +253,27 @@ def save_recommendations(
         (
             assessment_id,
             r.get("capability_id"),
-            r.get("capability_name"),
+            r.get("capability_name", ""),
             r.get("domain"),
+            r.get("subdomain"),
             r.get("capability_role"),
             r.get("current_score"),
-            r.get("target_maturity"),
+            r.get("target_maturity"),           # stored as target_score
             r.get("gap"),
             r.get("priority_tier"),
             r.get("effort_estimate"),
+            # Derive a headline if the AI didn't produce one
+            r.get("recommendation_headline") or (
+                f"Improve {r.get('capability_name', 'capability')} "
+                f"(gap: {r.get('gap', 0):.1f})"
+            ),
+            r.get("narrative"),                 # stored as current_state_narrative
             json.dumps(r.get("recommended_actions") or []),
             json.dumps(r.get("enabling_dependencies") or []),
             json.dumps(r.get("success_indicators") or []),
-            r.get("hpe_relevance"),
-            r.get("narrative"),
+            None,                               # hpe_relevance — removed from AI output
             datetime.now().isoformat(),
+            None,                               # model_used — reserved for future
         )
         for r in recommendations
     ]
@@ -242,11 +281,12 @@ def save_recommendations(
     client.write_many(
         """
         INSERT INTO AssessmentRecommendation
-            (assessment_id, capability_id, capability_name, domain, capability_role,
-             current_score, target_maturity, gap, priority_tier, effort_estimate,
-             recommended_actions, enabling_dependencies, success_indicators,
-             hpe_relevance, narrative, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (assessment_id, capability_id, capability_name, domain, subdomain,
+             capability_role, current_score, target_score, gap,
+             priority_tier, effort_estimate, recommendation_headline,
+             current_state_narrative, recommended_actions, enabling_dependencies,
+             success_indicators, hpe_relevance, generated_at, model_used)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -255,7 +295,10 @@ def save_recommendations(
 def load_recommendations(client: TMMClient, assessment_id: int) -> list[dict]:
     """
     Loads persisted recommendations for an assessment.
-    JSON-decodes list fields back to Python lists.
+    JSON-decodes list fields and normalises DB column names to the in-memory
+    names expected by the rest of the app:
+      target_score            → target_maturity
+      current_state_narrative → narrative
     Returns empty list if none exist.
     """
     res = client.query(
@@ -270,9 +313,12 @@ def load_recommendations(client: TMMClient, assessment_id: int) -> list[dict]:
     )
     rows = res.get("rows", [])
     for r in rows:
-        r["recommended_actions"] = json.loads(r.get("recommended_actions") or "[]")
+        r["recommended_actions"]  = json.loads(r.get("recommended_actions")  or "[]")
         r["enabling_dependencies"] = json.loads(r.get("enabling_dependencies") or "[]")
-        r["success_indicators"] = json.loads(r.get("success_indicators") or "[]")
+        r["success_indicators"]   = json.loads(r.get("success_indicators")   or "[]")
+        # Normalise DB column names → in-memory names used throughout the app
+        r["target_maturity"] = r.get("target_score")
+        r["narrative"]       = r.get("current_state_narrative") or ""
     return rows
 
 

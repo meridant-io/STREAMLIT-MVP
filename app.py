@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import streamlit as st
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
 
 # Silence noisy library loggers that dump debug/info messages to the terminal
 logging.getLogger("httpx").setLevel(logging.WARNING)

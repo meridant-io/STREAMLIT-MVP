@@ -130,6 +130,7 @@ def generate_findings_narrative(
     client_name: str = "",
     client_industry: str = "",
     client_country: str = "",
+    client_stated_context: str = "",
 ) -> str:
     """
     Uses Claude to generate a contextual executive findings narrative
@@ -185,6 +186,9 @@ HIGH RISK CAPABILITIES (score below 2):
 TOP CAPABILITY GAPS (largest gap to target of 3):
 {gap_summary}
 
+CLIENT-STATED CONTEXT (verbatim from assessment answers and notes — the ONLY permitted source of specific vendor, tool, or product names):
+{client_stated_context or "  None — no free-text answers were provided in this assessment."}
+
 Write a professional executive summary of 3–4 paragraphs that:
 1. Opens with an overall assessment of maturity relative to the use case intent, grounded in the client's industry and country context where relevant
 2. Highlights the strongest and weakest domains with specific observations relevant to a {client_industry or "enterprise"} organisation operating in {client_country or "their market"}
@@ -195,6 +199,7 @@ Write in a direct, professional consulting tone suitable for a CIO or executive 
 Do not use bullet points — write in flowing paragraphs.
 Do not repeat the raw numbers mechanically — interpret what they mean.
 Ground observations in the client's specific industry and market context — avoid generic advice.
+CRITICAL — technology grounding: Do NOT name specific vendors, cloud providers, platforms, or products (e.g. Azure, AWS, Splunk, ServiceNow, VMware) unless that specific name appears verbatim in the CLIENT-STATED CONTEXT above. When specific tools are not confirmed, use the capability or category description instead. Violating this rule introduces misinformation into a client-facing report.
 """
 
     response = _call_with_retry(
@@ -301,10 +306,23 @@ def generate_gap_recommendations(
     response_block = "\n".join(
         f"  Q: {r.get('question', '')}\n"
         f"  Score: {r.get('score', 'N/A')}/5"
-        + (f"  Answer: {r.get('answer', '')}" if r.get("answer") else "")
+        + (f"\n  Answer: {r.get('answer', '')}" if r.get("answer") else "")
         + (f"\n  Notes: {r.get('notes', '')}" if r.get("notes") else "")
         for r in scored_responses
     ) or "  No responses recorded."
+
+    # Extract verbatim client-stated context from all answer and notes fields.
+    # This is the ONLY permitted source of specific vendor/tool/product names.
+    stated_texts = [
+        t for r in scored_responses
+        for t in (r.get("answer", "") or "", r.get("notes", "") or "")
+        if t.strip()
+    ]
+    client_stated_context = (
+        "\n".join(f"  - {t.strip()}" for t in stated_texts)
+        if stated_texts
+        else "  None — the client did not provide free-text answers for this capability."
+    )
 
     dep_block = (
         "  " + "\n  ".join(foundational_deps)
@@ -342,10 +360,13 @@ WHAT THEY NEED TO ACHIEVE AT L{target_maturity}:
 ASSESSMENT RESPONSES FOR THIS CAPABILITY:
 {response_block}
 
+CLIENT-STATED CONTEXT (verbatim from assessment answers and notes — the ONLY permitted source of specific vendor, tool, or product names):
+{client_stated_context}
+
 FOUNDATIONAL CAPABILITIES THAT MUST BE IN PLACE FIRST:
 {dep_block}
 
-Based on the above, generate a precise, actionable recommendation. Do NOT use generic maturity advice — ground every action in the actual responses, level descriptors, and the client's industry and country context provided.
+Based on the above, generate a precise, actionable recommendation grounded entirely in what is known about this client. Do NOT use generic maturity advice, and do NOT infer or invent information that was not stated by the client.
 
 Return ONLY a valid JSON object with no preamble, no markdown, no explanation:
 {{
@@ -371,6 +392,7 @@ Rules:
 - success_indicators: measurable, time-bound where possible, relevant to the client's industry
 - narrative: explicitly reference the client's industry and/or market dynamics where they affect urgency or approach
 - Do not repeat the raw scores — interpret what they mean
+- CRITICAL — technology grounding: Do NOT name specific vendors, cloud providers, platforms, or products (e.g. Azure, AWS, Splunk, ServiceNow, Kubernetes) unless that specific name appears verbatim in the CLIENT-STATED CONTEXT above. When specific tools are not confirmed, use the capability or category description instead (e.g. "a container registry solution" not "Azure Container Registry", "a SIEM platform" not "Splunk", "a cloud-native CI/CD pipeline" not "GitHub Actions"). Violating this rule introduces misinformation into a client-facing report.
 """
 
     response = _call_with_retry(
@@ -402,6 +424,7 @@ def generate_roadmap_plan(
     client_name: str = "",
     client_industry: str = "",
     client_country: str = "",
+    client_stated_context: str = "",
 ) -> dict:
     """
     Calls Claude to generate a structured gap-closure roadmap.
@@ -513,6 +536,9 @@ DOMAIN SCORES (current/target/gap, sorted by gap descending):
 TOP CAPABILITY GAPS ({scope} scope, sorted by gap descending):
 {cap_summary}{rec_block}
 
+CLIENT-STATED CONTEXT (verbatim from assessment answers and notes — the ONLY permitted source of specific vendor, tool, or product names):
+{client_stated_context or "  None — no free-text answers were provided in this assessment."}
+
 Design a prioritised gap-closure roadmap with:
 - 3–4 sequential phases that naturally overlap (waterfall planning, agile delivery within each phase)
 - Each phase: 3–6 domain-level initiatives (grouped themes, NOT individual tasks)
@@ -567,6 +593,7 @@ Constraints:
 - Use domain names EXACTLY as given in the input data
 - Quick wins: 2–5 concrete actions completable in under 2 weeks with immediate visible impact
 - Critical path: 3–5 initiative names that represent the key sequential dependencies
+- CRITICAL — technology grounding: Do NOT name specific vendors, cloud providers, platforms, or products (e.g. Azure, AWS, Splunk, ServiceNow, VMware) in initiative names, descriptions, activities, outcomes, or quick wins unless that specific name appears verbatim in the CLIENT-STATED CONTEXT above. Use capability or category descriptions instead (e.g. "cloud management platform" not "Azure Arc", "ITSM tooling" not "ServiceNow"). Violating this rule introduces misinformation into a client-facing deliverable.
 """
 
     response = _call_with_retry(
