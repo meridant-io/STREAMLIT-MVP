@@ -4,17 +4,22 @@ import json
 from datetime import datetime
 from src.meridant_client import MeridantClient
 
+_narrative_column_ensured = False
+
 
 def _ensure_narrative_column(client: MeridantClient) -> None:
     """
     Add findings_narrative column to Assessment if it doesn't already exist.
-    SQLite raises OperationalError on duplicate ADD COLUMN — we suppress it.
-    This is a one-time inline migration, safe to call on every write path.
+    Memoized — only runs the ALTER TABLE once per process.
     """
+    global _narrative_column_ensured
+    if _narrative_column_ensured:
+        return
     try:
         client.write("ALTER TABLE Assessment ADD COLUMN findings_narrative TEXT", [])
     except Exception:
         pass  # Column already exists
+    _narrative_column_ensured = True
 
 
 def save_narrative(client: MeridantClient, assessment_id: int, narrative: str) -> None:

@@ -10,3 +10,4 @@ start.ps1
 TMM_Assessment_Platform_Demo_Guide.md
 data/*.db
 # CLAUDE.md
+auth_config.yaml

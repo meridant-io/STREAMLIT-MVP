@@ -3,12 +3,10 @@ from __future__ import annotations
 import os
 import sqlite3
 from dotenv import load_dotenv
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Optional
 
 load_dotenv()
-
-DEFAULT_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "30"))
 
 
 @dataclass
@@ -43,46 +41,53 @@ class MeridantClient:
         """
         Execute a SELECT query and return rows as a list of dicts.
         """
+        conn = None
         try:
             conn = self._connect()
             cur = conn.cursor()
             cur.execute(sql, params or [])
             rows = [dict(r) for r in cur.fetchall()]
-            conn.close()
             return {"rows": rows, "count": len(rows)}
         except Exception as e:
             return {"rows": [], "count": 0, "error": str(e)}
+        finally:
+            if conn:
+                conn.close()
 
     def write(self, sql: str, params: list = None) -> dict:
         """
         Execute an INSERT, UPDATE, or DELETE query.
         Returns lastrowid and rowcount.
         """
+        conn = None
         try:
             conn = self._connect()
             cur = conn.cursor()
             cur.execute(sql, params or [])
             conn.commit()
-            result = {"lastrowid": cur.lastrowid, "rowcount": cur.rowcount}
-            conn.close()
-            return result
+            return {"lastrowid": cur.lastrowid, "rowcount": cur.rowcount}
         except Exception as e:
             return {"lastrowid": None, "rowcount": 0, "error": str(e)}
+        finally:
+            if conn:
+                conn.close()
 
     def write_many(self, sql: str, params_list: list) -> dict:
         """
         Execute a batch INSERT using executemany.
         """
+        conn = None
         try:
             conn = self._connect()
             cur = conn.cursor()
             cur.executemany(sql, params_list)
             conn.commit()
-            result = {"rowcount": cur.rowcount}
-            conn.close()
-            return result
+            return {"rowcount": cur.rowcount}
         except Exception as e:
             return {"rowcount": 0, "error": str(e)}
+        finally:
+            if conn:
+                conn.close()
 
 
 def get_client() -> MeridantClient:

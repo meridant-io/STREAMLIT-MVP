@@ -134,6 +134,23 @@ def copy_table(
     return len(rows)
 
 
+def _verify_db(
+    label: str,
+    target_path: str,
+    tables: list[str],
+    source_conn: sqlite3.Connection,
+) -> None:
+    """Print a row-count comparison between source and target for the given tables."""
+    print(f"\n  {label}:")
+    tgt_conn = sqlite3.connect(target_path)
+    for t in tables:
+        src_n = source_conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+        tgt_n = tgt_conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+        status = "✓" if src_n == tgt_n else "✗ MISMATCH"
+        print(f"    {status}  {t}: source={src_n}, target={tgt_n}")
+    tgt_conn.close()
+
+
 def run_migration(
     source_path: str,
     frameworks_path: str,
@@ -188,27 +205,11 @@ def run_migration(
     as_conn.close()
     print(f"  Done — {len(assessment_tables)} tables, {as_total} rows total\n")
 
-    source_conn.close()
-
     # ── Verification ──────────────────────────────────────────────────────────
     print("Verification — row counts:")
-    print(f"\n  meridant_frameworks.db:")
-    fw_conn = sqlite3.connect(frameworks_path)
-    for t in framework_tables:
-        src_n = sqlite3.connect(source_path).execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-        tgt_n = fw_conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-        status = "✓" if src_n == tgt_n else "✗ MISMATCH"
-        print(f"    {status}  {t}: source={src_n}, target={tgt_n}")
-    fw_conn.close()
-
-    print(f"\n  meridant.db:")
-    as_conn = sqlite3.connect(assessments_path)
-    for t in assessment_tables:
-        src_n = sqlite3.connect(source_path).execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-        tgt_n = as_conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-        status = "✓" if src_n == tgt_n else "✗ MISMATCH"
-        print(f"    {status}  {t}: source={src_n}, target={tgt_n}")
-    as_conn.close()
+    _verify_db("meridant_frameworks.db", frameworks_path, framework_tables, source_conn)
+    _verify_db("meridant.db", assessments_path, assessment_tables, source_conn)
+    source_conn.close()
 
     print(f"\n{'='*60}")
     print("Migration complete.")

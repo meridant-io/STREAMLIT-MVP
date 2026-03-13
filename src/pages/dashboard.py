@@ -163,83 +163,83 @@ def render() -> None:
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <style>
   :root {
-    --bs-body-bg:      #ffffff;
-    --bs-body-color:   #1a1a2e;
+    --bs-body-bg:      #F9FAFB;
+    --bs-body-color:   #111827;
     --bs-card-bg:      #ffffff;
-    --bs-border-color: #e0e4ea;
-    --accent:  #0066cc;
-    --green:   #1a8a7a;
-    --gold:    #c09030;
-    --red:     #d04830;
-    --purple:  #7c3aed;
-    --orange:  #d07020;
+    --bs-border-color: #D1D5DB;
+    --accent:  #2563EB;
+    --green:   #0D9488;
+    --gold:    #D97706;
+    --red:     #DC2626;
+    --purple:  #7C3AED;
+    --orange:  #EA580C;
   }
   body { font-family:'Inter',sans-serif; background:var(--bs-body-bg); color:var(--bs-body-color); }
   code, .mono { font-family:'JetBrains Mono',monospace; }
 
   .kpi-card {
-    background:#ffffff; border:1px solid #e0e4ea; border-radius:10px;
+    background:#ffffff; border:1px solid #D1D5DB; border-radius:10px;
     padding:1.1rem 1.4rem; transition:border-color .2s;
   }
   .kpi-card:hover { border-color:var(--accent); }
   .kpi-value { font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; line-height:1; color:var(--accent); }
-  .kpi-label { font-size:.72rem; color:#8a929a; letter-spacing:.08em; text-transform:uppercase; margin-top:.3rem; }
+  .kpi-label { font-size:.72rem; color:#6B7280; letter-spacing:.08em; text-transform:uppercase; margin-top:.3rem; }
 
   .domain-card {
-    background:#ffffff; border:1px solid #e0e4ea; border-radius:10px;
+    background:#ffffff; border:1px solid #D1D5DB; border-radius:10px;
     cursor:pointer; padding:1rem 1.1rem;
     transition:transform .18s, box-shadow .18s, border-color .18s;
   }
   .domain-card:hover { transform:translateY(-3px); box-shadow:0 4px 16px rgba(0,0,0,.08); }
   .domain-card.active { border-width:2px !important; }
   .domain-id   { font-family:'JetBrains Mono',monospace; font-size:.68rem; font-weight:700; letter-spacing:.06em; margin-bottom:.4rem; }
-  .domain-name { font-size:.82rem; font-weight:700; line-height:1.3; min-height:2.4rem; color:#1a1a2e; margin-bottom:.8rem; }
+  .domain-name { font-size:.82rem; font-weight:700; line-height:1.3; min-height:2.4rem; color:#111827; margin-bottom:.8rem; }
   .stat-val    { font-family:'JetBrains Mono',monospace; font-size:1.25rem; font-weight:700; }
-  .stat-lbl    { font-size:.62rem; color:#8a929a; text-transform:uppercase; }
+  .stat-lbl    { font-size:.62rem; color:#6B7280; text-transform:uppercase; }
 
   #drilldown { display:none; }
   #drilldown.show { display:block; }
   .sd-card {
-    background:#f7f8fa; border:1px solid #e0e4ea; border-radius:8px;
+    background:#F9FAFB; border:1px solid #D1D5DB; border-radius:8px;
     padding:.9rem 1rem; font-size:.78rem; cursor:pointer;
     transition:border-color .15s, background .15s;
   }
-  .sd-card:hover { background:#eef1f5; }
-  .sd-card.active { border-width:2px !important; background:#eef1f5; }
+  .sd-card:hover { background:#F3F4F6; }
+  .sd-card.active { border-width:2px !important; background:#F3F4F6; }
   .sd-name { font-weight:700; font-size:.8rem; margin-bottom:.3rem; }
 
   #cap-view { display:none; }
   #cap-view.show { display:block; }
   .cap-card {
-    background:#ffffff; border:1px solid #e0e4ea; border-radius:8px;
+    background:#ffffff; border:1px solid #D1D5DB; border-radius:8px;
     padding:.8rem 1rem; cursor:pointer;
     transition:transform .15s, box-shadow .15s, border-color .15s;
   }
-  .cap-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.08); border-color:#c0c8d0; }
-  .cap-name  { font-size:.78rem; font-weight:700; color:#1a1a2e; margin-bottom:.5rem; line-height:1.3; min-height:2.2rem; }
+  .cap-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.08); border-color:#D1D5DB; }
+  .cap-name  { font-size:.78rem; font-weight:700; color:#111827; margin-bottom:.5rem; line-height:1.3; min-height:2.2rem; }
   .pip-track { display:flex; gap:3px; margin-bottom:.4rem; }
   .pip       { flex:1; height:4px; border-radius:2px; }
-  .cap-meta  { font-size:.64rem; color:#8a929a; }
+  .cap-meta  { font-size:.64rem; color:#6B7280; }
 
-  .bc-nav { display:flex; align-items:center; gap:.5rem; font-size:.75rem; color:#8a929a; margin-bottom:1.2rem; font-family:'JetBrains Mono',monospace; }
+  .bc-nav { display:flex; align-items:center; gap:.5rem; font-size:.75rem; color:#6B7280; margin-bottom:1.2rem; font-family:'JetBrains Mono',monospace; }
   .bc-link { color:var(--accent); cursor:pointer; text-decoration:underline; }
-  .bc-link:hover { color:#004499; }
-  .bc-sep  { color:#c0c8d0; }
+  .bc-link:hover { color:#1D4ED8; }
+  .bc-sep  { color:#D1D5DB; }
 
-  .section-label { font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; color:#5a6570; margin-bottom:1rem; font-family:'JetBrains Mono',monospace; }
+  .section-label { font-size:.7rem; letter-spacing:.16em; text-transform:uppercase; color:#6B7280; margin-bottom:1rem; font-family:'JetBrains Mono',monospace; }
   .anchor-row    { margin-bottom:.85rem; }
-  .anchor-name   { font-size:.78rem; font-weight:600; color:#1a1a2e; }
-  .anchor-domain { font-size:.65rem; color:#8a929a; margin-bottom:.3rem; }
+  .anchor-name   { font-size:.78rem; font-weight:600; color:#111827; }
+  .anchor-domain { font-size:.65rem; color:#6B7280; margin-bottom:.3rem; }
   .anchor-links  { font-family:'JetBrains Mono',monospace; font-size:.7rem; font-weight:700; }
 
-  .table th { font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:#8a929a; border-color:#e0e4ea; }
-  .table td { font-size:.82rem; border-color:#e0e4ea; vertical-align:middle; }
-  .table-hover tbody tr:hover td { background:#f7f8fa; }
-  hr.section-divider { border-color:#e0e4ea; margin:2rem 0; }
+  .table th { font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:#6B7280; border-color:#D1D5DB; }
+  .table td { font-size:.82rem; border-color:#D1D5DB; vertical-align:middle; }
+  .table-hover tbody tr:hover td { background:#F9FAFB; }
+  hr.section-divider { border-color:#D1D5DB; margin:2rem 0; }
 
-  .modal-content { background:#ffffff; border:1px solid #e0e4ea; }
-  .modal-header  { border-bottom:1px solid #e0e4ea; }
-  .modal-footer  { border-top:1px solid #e0e4ea; }
+  .modal-content { background:#ffffff; border:1px solid #D1D5DB; }
+  .modal-header  { border-bottom:1px solid #D1D5DB; }
+  .modal-footer  { border-top:1px solid #D1D5DB; }
 
   /* Custom overlay */
   #capOverlay {
@@ -249,7 +249,7 @@ def render() -> None:
   }
   #capOverlay.show { display:flex; }
   #capOverlayContent {
-    background:#ffffff; border:1px solid #e0e4ea; border-radius:10px;
+    background:#ffffff; border:1px solid #D1D5DB; border-radius:10px;
     width:100%; max-width:800px; max-height:94vh; overflow-y:auto;
     box-shadow:0 12px 40px rgba(0,0,0,.12);
   }
@@ -257,19 +257,19 @@ def render() -> None:
   #capOverlayContent .modal-body   { padding:0 1.2rem 1rem; }
   #capOverlayContent .modal-footer  { padding:.8rem 1.2rem; display:flex; justify-content:flex-end; }
   .overlay-close {
-    background:none; border:none; color:#8a929a; font-size:1.4rem; cursor:pointer;
+    background:none; border:none; color:#6B7280; font-size:1.4rem; cursor:pointer;
     padding:0; line-height:1; margin-left:auto;
   }
-  .overlay-close:hover { color:#1a1a2e; }
-  .nav-tabs .nav-link        { color:#8a929a; border-color:#e0e4ea; font-size:.78rem; }
-  .nav-tabs .nav-link.active { background:#f7f8fa; color:#1a1a2e; border-color:#e0e4ea #e0e4ea #f7f8fa; }
-  .nav-tabs .nav-link:hover  { color:#1a1a2e; border-color:#e0e4ea; }
-  .tab-content  { background:#f7f8fa; border:1px solid #e0e4ea; border-top:none; border-radius:0 0 6px 6px; padding:1rem; }
-  .level-state  { font-size:.8rem; color:#3a3f48; line-height:1.6; margin-bottom:.8rem; }
-  .level-indicators { font-size:.75rem; color:#5a6570; }
+  .overlay-close:hover { color:#111827; }
+  .nav-tabs .nav-link        { color:#6B7280; border-color:#D1D5DB; font-size:.78rem; }
+  .nav-tabs .nav-link.active { background:#F9FAFB; color:#111827; border-color:#D1D5DB #D1D5DB #F9FAFB; }
+  .nav-tabs .nav-link:hover  { color:#111827; border-color:#D1D5DB; }
+  .tab-content  { background:#F9FAFB; border:1px solid #D1D5DB; border-top:none; border-radius:0 0 6px 6px; padding:1rem; }
+  .level-state  { font-size:.8rem; color:#374151; line-height:1.6; margin-bottom:.8rem; }
+  .level-indicators { font-size:.75rem; color:#6B7280; }
   .level-badge  { font-family:'JetBrains Mono',monospace; font-size:.65rem; font-weight:700; padding:.25rem .6rem; border-radius:4px; display:inline-block; margin-bottom:.8rem; }
   .maturity-current { font-family:'JetBrains Mono',monospace; font-size:1.6rem; font-weight:700; line-height:1; }
-  .owner-badge  { background:#f0f2f5; border:1px solid #e0e4ea; border-radius:4px; padding:.2rem .5rem; font-size:.68rem; color:#5a6570; }
+  .owner-badge  { background:#F3F4F6; border:1px solid #D1D5DB; border-radius:4px; padding:.2rem .5rem; font-size:.68rem; color:#6B7280; }
 </style>
 </head>
 <body class="p-3">
@@ -293,7 +293,7 @@ def render() -> None:
       <span id="dd-title" class="fw-bold" style="font-size:.95rem"></span>
       <span id="dd-badge" class="badge rounded-pill ms-1" style="font-size:.65rem"></span>
       <button class="btn btn-sm ms-auto" id="dd-close"
-              style="background:#f0f2f5;border:1px solid #e0e4ea;color:#5a6570;font-size:.7rem">
+              style="background:#F3F4F6;border:1px solid #D1D5DB;color:#6B7280;font-size:.7rem">
         &#x2715; Close
       </button>
     </div>
@@ -315,20 +315,20 @@ def render() -> None:
       <div>
         <div class="d-flex align-items-center gap-2 mb-1">
           <span id="modal-domain-badge" class="badge" style="font-size:.65rem"></span>
-          <span id="modal-subdomain-badge" class="badge" style="background:#f0f2f5;color:#5a6570;font-size:.65rem"></span>
+          <span id="modal-subdomain-badge" class="badge" style="background:#F3F4F6;color:#6B7280;font-size:.65rem"></span>
         </div>
-        <h6 class="fw-bold" id="modal-cap-name" style="color:#1a1a2e;font-size:.95rem;margin:0"></h6>
+        <h6 class="fw-bold" id="modal-cap-name" style="color:#111827;font-size:.95rem;margin:0"></h6>
       </div>
       <div class="d-flex align-items-center gap-3 ms-auto me-3">
         <div class="text-center">
           <div class="maturity-current" id="modal-maturity-val" style="color:var(--accent)">-</div>
-          <div style="font-size:.62rem;color:#8a929a;text-transform:uppercase;letter-spacing:.06em">Avg Maturity</div>
+          <div style="font-size:.62rem;color:#6B7280;text-transform:uppercase;letter-spacing:.06em">Avg Maturity</div>
         </div>
       </div>
       <button type="button" class="overlay-close" id="overlay-close-x">&#x2715;</button>
     </div>
     <div class="modal-body">
-      <p id="modal-cap-desc" style="font-size:.8rem;color:#5a6570;margin-bottom:1rem"></p>
+      <p id="modal-cap-desc" style="font-size:.8rem;color:#6B7280;margin-bottom:1rem"></p>
       <div id="modal-owner" class="mb-3"></div>
       <div class="section-label">Maturity Level Descriptors</div>
       <ul class="nav nav-tabs" id="levelTabs" role="tablist"></ul>
@@ -336,7 +336,7 @@ def render() -> None:
     </div>
     <div class="modal-footer">
       <button type="button" class="btn btn-sm" id="overlay-close-btn"
-              style="background:#f0f2f5;border:1px solid #e0e4ea;color:#5a6570;font-size:.75rem">
+              style="background:#F3F4F6;border:1px solid #D1D5DB;color:#6B7280;font-size:.75rem">
         Close
       </button>
     </div>
@@ -345,9 +345,9 @@ def render() -> None:
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-const DOMAIN_COLORS = ['#0066cc','#d04830','#c09030','#1a8a7a','#7c3aed','#d07020','#2563eb','#0891b2','#9333ea','#be185d','#059669','#6366f1'];
-const DEP_COLORS    = ['#d04830','#c09030','#1a8a7a','#0066cc'];
-const LEVEL_COLORS  = ['#d04830','#c09030','#d07020','#1a8a7a','#0066cc'];
+const DOMAIN_COLORS = ['#0F2744','#DC2626','#7C3AED','#2563EB','#0D9488','#6366F1','#0EA5E9','#374151','#5B21B6','#0369A1','#047857','#9333EA'];
+const DEP_COLORS    = ['#DC2626','#D97706','#0D9488','#2563EB'];
+const LEVEL_COLORS  = ['#DC2626','#D97706','#EA580C','#0D9488','#2563EB'];
 const LEVEL_NAMES   = ['Ad Hoc','Defined','Integrated','Intelligent','Adaptive'];
 
 // lookup maps
@@ -374,7 +374,7 @@ function fmt(v) {
 function renderPips(avg, color) {
   const s = parseFloat(avg) || 0;
   let h = '<div class="pip-track">';
-  for (let i = 1; i <= 5; i++) h += `<div class="pip" style="background:${i <= Math.round(s) ? color : '#e0e4ea'}"></div>`;
+  for (let i = 1; i <= 5; i++) h += `<div class="pip" style="background:${i <= Math.round(s) ? color : '#D1D5DB'}"></div>`;
   return h + '</div>';
 }
 
@@ -389,8 +389,8 @@ DATA.domains.forEach((d,i) => {
     <div class="domain-name">${d.domain_name}</div>
     <div class="d-flex gap-3">
       <div><div class="stat-val" style="color:${color}">${d.subdomains}</div><div class="stat-lbl">Subdomains</div></div>
-      <div><div class="stat-val" style="color:#1a1a2e">${d.capabilities}</div><div class="stat-lbl">Capabilities</div></div>
-      <div><div class="stat-val" style="color:#8a929a">${d.dependencies}</div><div class="stat-lbl">Deps</div></div>
+      <div><div class="stat-val" style="color:#111827">${d.capabilities}</div><div class="stat-lbl">Capabilities</div></div>
+      <div><div class="stat-val" style="color:#6B7280">${d.dependencies}</div><div class="stat-lbl">Deps</div></div>
     </div>
   </div>`;
   domainGrid.appendChild(col);
@@ -431,7 +431,7 @@ function toggleDomain(id, color) {
     col.className = 'col-6 col-md-4 col-lg-3';
     col.innerHTML = `<div class="sd-card" id="sdc-${sd.id}" style="border-top:2px solid ${color}" onclick="selectSubdomain(${sd.id},'${color}')">
       <div class="sd-name" style="color:${color}">${sd.subdomain_name}</div>
-      <div class="mono" style="font-size:.7rem;color:#8a929a">${sd.cap_count} capabilities</div>
+      <div class="mono" style="font-size:.7rem;color:#6B7280">${sd.cap_count} capabilities</div>
     </div>`;
     grid.appendChild(col);
   });
@@ -480,7 +480,7 @@ function renderCapabilities(sdId, color, sdName) {
     <span class="bc-sep">\u203a</span>
     <span style="color:${color}">${domain ? domain.domain_name : ''}</span>
     <span class="bc-sep">\u203a</span>
-    <span style="color:#1a1a2e">${sdName}</span>`;
+    <span style="color:#111827">${sdName}</span>`;
 
   const grid = document.getElementById('cap-grid');
   grid.innerHTML = '';
@@ -523,7 +523,7 @@ function openCapModal(capId) {
   if (!cap) return;
   const domain = domainById[cap.domain_id];
   const sd     = sdById[cap.subdomain_id];
-  const color  = domain ? DOMAIN_COLORS[(domain.id - 1) % DOMAIN_COLORS.length] : '#8a929a';
+  const color  = domain ? DOMAIN_COLORS[(domain.id - 1) % DOMAIN_COLORS.length] : '#6B7280';
   const levels = capLevelMap[capId] || [];
 
   document.getElementById('modal-cap-name').textContent      = cap.capability_name;
@@ -546,7 +546,7 @@ function openCapModal(capId) {
   content.innerHTML = '';
 
   if (levels.length === 0) {
-    content.innerHTML = '<p style="color:#8a929a;font-size:.8rem">No maturity level data available.</p>';
+    content.innerHTML = '<p style="color:#6B7280;font-size:.8rem">No maturity level data available.</p>';
   } else {
     levels.forEach((lv, idx) => {
       const lc     = LEVEL_COLORS[(lv.level - 1) % LEVEL_COLORS.length];
@@ -566,7 +566,7 @@ function openCapModal(capId) {
       content.innerHTML += `<div class="tab-pane fade show ${active}" id="${paneId}" role="tabpanel">
         <span class="level-badge" style="background:${lc}22;color:${lc};border:1px solid ${lc}44">L${lv.level} \u2014 ${lv.level_name || LEVEL_NAMES[lv.level-1]}</span>
         <div class="level-state">${lv.capability_state || 'No description available.'}</div>
-        ${indHtml ? `<div style="font-size:.72rem;color:#8a929a;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem">Key Indicators</div>
+        ${indHtml ? `<div style="font-size:.72rem;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem">Key Indicators</div>
         <ul style="padding-left:1.2rem;margin:0" class="level-indicators">${indHtml}</ul>` : ''}
       </div>`;
     });

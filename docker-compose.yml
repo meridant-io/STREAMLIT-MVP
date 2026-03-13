@@ -7,4 +7,5 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+      - ./auth_config.yaml:/app/auth_config.yaml:ro
     restart: unless-stopped

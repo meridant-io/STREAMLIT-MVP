@@ -35,7 +35,7 @@ _PRIORITY_COLORS: dict[str, str] = {
     "Medium":   "#D97706",
     "Low":      "#16A34A",
 }
-_PRIORITY_DEFAULT = "#64748B"
+_PRIORITY_DEFAULT = "#6B7280"
 
 
 def _week_to_period(week: int, timeline_unit: str) -> int:
@@ -90,7 +90,7 @@ def render_roadmap_gantt_html(roadmap: dict, timeline_unit: str = "Sprints (2 wk
 
         # Phase header row
         rows_html += (
-            f'<tr style="background:#1e293b;color:#f1f5f9;">'
+            f'<tr style="background:#0F2744;color:#F9FAFB;">'
             f'<td colspan="{total_cols}" style="padding:7px 12px;font-weight:700;'
             f'font-size:0.88rem;letter-spacing:0.04em;">'
             f'<span style="opacity:0.5;font-size:0.7rem;margin-right:8px;'
@@ -101,11 +101,11 @@ def render_roadmap_gantt_html(roadmap: dict, timeline_unit: str = "Sprints (2 wk
         # Narrative row
         if story or description or activities:
             story_html = (
-                f'<div style="font-style:italic;color:#94a3b8;font-size:0.77rem;'
+                f'<div style="font-style:italic;color:#6B7280;font-size:0.77rem;'
                 f'margin-bottom:3px;">"{story}"</div>'
             ) if story else ""
             desc_html = (
-                f'<div style="font-size:0.79rem;color:#475569;margin-bottom:3px;">'
+                f'<div style="font-size:0.79rem;color:#374151;margin-bottom:3px;">'
                 f'{description}</div>'
             ) if description else ""
             act_html = ""
@@ -113,10 +113,10 @@ def render_roadmap_gantt_html(roadmap: dict, timeline_unit: str = "Sprints (2 wk
                 acts = "".join(f"<li>{a}</li>" for a in activities)
                 act_html = (
                     f'<ul style="margin:3px 0 0;padding-left:16px;'
-                    f'font-size:0.76rem;color:#475569;">{acts}</ul>'
+                    f'font-size:0.76rem;color:#374151;">{acts}</ul>'
                 )
             rows_html += (
-                f'<tr style="background:#f8fafc;border-bottom:2px solid #cbd5e1;">'
+                f'<tr style="background:#F9FAFB;border-bottom:2px solid #D1D5DB;">'
                 f'<td colspan="{total_cols}" style="padding:5px 12px 8px 22px;">'
                 f'{story_html}{desc_html}{act_html}'
                 f'</td></tr>\n'
@@ -146,7 +146,7 @@ def render_roadmap_gantt_html(roadmap: dict, timeline_unit: str = "Sprints (2 wk
             if leading > 0:
                 period_cells += (
                     f'<td colspan="{leading}" '
-                    f'style="background:#f8fafc;border-color:#e2e8f0;padding:0;"></td>'
+                    f'style="background:#F9FAFB;border-color:#D1D5DB;padding:0;"></td>'
                 )
             outcome_label = (
                 f'<span style="font-size:0.67rem;color:#fff;padding:0 3px;'
@@ -161,15 +161,15 @@ def render_roadmap_gantt_html(roadmap: dict, timeline_unit: str = "Sprints (2 wk
             if trailing > 0:
                 period_cells += (
                     f'<td colspan="{trailing}" '
-                    f'style="background:#f8fafc;border-color:#e2e8f0;padding:0;"></td>'
+                    f'style="background:#F9FAFB;border-color:#D1D5DB;padding:0;"></td>'
                 )
 
             star = " ⭐" if is_critical else ""
             rows_html += (
-                f'<tr style="border-bottom:1px solid #e2e8f0;">'
+                f'<tr style="border-bottom:1px solid #D1D5DB;">'
                 f'<td style="padding:4px 6px 4px 22px;font-size:0.79rem;font-weight:500;">'
                 f'{init_name}{star}</td>'
-                f'<td style="padding:4px;font-size:0.72rem;color:#64748b;">{domain}</td>'
+                f'<td style="padding:4px;font-size:0.72rem;color:#6B7280;">{domain}</td>'
                 f'<td style="padding:4px;text-align:center;">'
                 f'<span style="background:{prio_color};color:#fff;border-radius:3px;'
                 f'padding:1px 5px;font-size:0.68rem;">{priority}</span>'
@@ -198,12 +198,13 @@ def render_roadmap_gantt_html(roadmap: dict, timeline_unit: str = "Sprints (2 wk
     return f"""<!DOCTYPE html>
 <html><head>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 6px; margin: 0; }}
+    body {{ font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; padding: 6px; margin: 0; background:#F9FAFB; }}
     .gantt-wrap {{ overflow-x: auto; }}
     .gantt-table {{ border-collapse: collapse; width: 100%; table-layout: fixed; min-width: {total_width}px; }}
-    .gantt-table th, .gantt-table td {{ border: 1px solid #e2e8f0; vertical-align: middle; }}
-    .gantt-table thead th {{ background: #1e293b; color: #f1f5f9; font-size: 0.76rem; padding: 5px 4px; }}
+    .gantt-table th, .gantt-table td {{ border: 1px solid #D1D5DB; vertical-align: middle; }}
+    .gantt-table thead th {{ background: #0F2744; color: #F9FAFB; font-size: 0.76rem; padding: 5px 4px; }}
   </style>
 </head><body>
   <div class="gantt-wrap">
@@ -222,7 +223,7 @@ def render_roadmap_gantt_html(roadmap: dict, timeline_unit: str = "Sprints (2 wk
     </table>
   </div>
   {qw_html}
-  <div style="margin-top:6px;font-size:0.68rem;color:#94a3b8;">⭐ = Critical path initiative</div>
+  <div style="margin-top:6px;font-size:0.68rem;color:#6B7280;">⭐ = Critical path initiative</div>
 </body></html>"""
 
 
@@ -257,7 +258,7 @@ def generate_roadmap_excel(
 
     ws1.merge_cells("A2:J2")
     ws1["A2"] = f"Client: {client_name}   |   Engagement: {engagement_name}"
-    ws1["A2"].font = Font(italic=True, size=10, color="666666")
+    ws1["A2"].font = Font(italic=True, size=10, color="6B7280")
 
     headers1 = [
         "Phase", "Initiative", "Domain", "Priority",
@@ -267,7 +268,7 @@ def generate_roadmap_excel(
     for col_idx, h in enumerate(headers1, start=1):
         cell = ws1.cell(row=4, column=col_idx, value=h)
         cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill(fill_type="solid", fgColor="1E293B")
+        cell.fill = PatternFill(fill_type="solid", fgColor="0F2744")
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
     row = 5
@@ -300,7 +301,7 @@ def generate_roadmap_excel(
     for col_idx, h in enumerate(headers2, start=1):
         cell = ws2.cell(row=3, column=col_idx, value=h)
         cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill(fill_type="solid", fgColor="1E293B")
+        cell.fill = PatternFill(fill_type="solid", fgColor="0F2744")
 
     row2 = 4
     for phase in roadmap.get("phases", []):

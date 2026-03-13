@@ -14,24 +14,22 @@ from __future__ import annotations
 import io
 from typing import Optional
 
-# ── Domain brand colours (matches the HPE Excel template for the first 8,
-#    extended for the 4 newer TMM domains) ──────────────────────────────────
+# ── Domain brand colours (Meridant brand palette) ────────────────────────────
 DOMAIN_COLORS: dict[str, str] = {
-    "Strategy & Governance":                  "#32DAC8",
-    "Security":                               "#0D5265",
-    "People":                                 "#7630EA",
-    "Applications":                           "#BFBFBF",
-    "Data":                                   "#FFC000",
-    "DevOps":                                 "#01A982",
-    "Innovation":                             "#FF8300",
-    "Operations":                             "#CE67FF",
-    # Newer domains
-    "AI & Cognitive Systems":                 "#0066CC",
-    "Intelligent Automation & Operations":    "#D04830",
-    "Sustainability & Responsible Technology":"#059669",
+    "Strategy & Governance":                  "#0F2744",
+    "Security":                               "#DC2626",
+    "People":                                 "#7C3AED",
+    "Applications":                           "#2563EB",
+    "Data":                                   "#0D9488",
+    "DevOps":                                 "#6366F1",
+    "Innovation":                             "#0EA5E9",
+    "Operations":                             "#374151",
+    "AI & Cognitive Systems":                 "#5B21B6",
+    "Intelligent Automation & Operations":    "#0369A1",
+    "Sustainability & Responsible Technology":"#047857",
     "Experience & Ecosystem Enablement":      "#9333EA",
 }
-_DEFAULT_COLOR = "#8A929A"
+_DEFAULT_COLOR = "#6B7280"
 
 # ── Maturity level definitions (L5 → L1, matching app's DB naming) ─────────
 LEVELS = [
@@ -43,10 +41,10 @@ LEVELS = [
 ]
 
 # ── Cell colour thresholds ───────────────────────────────────────────────────
-_GREEN  = "#B7E2CD"   # fully achieved  (score == 1.0)
-_AMBER  = "#FDE9B2"   # partial         (0 < score < 1.0)
+_GREEN  = "#CCFBF1"   # fully achieved  (score == 1.0) — teal-100 (aligned with Benchmarks)
+_AMBER  = "#FEF3C7"   # partial         (0 < score < 1.0) — amber-100
 _WHITE  = "#FFFFFF"   # not yet reached (score == 0.0)
-_GRAY   = "#D9D9D9"   # average row background
+_GRAY   = "#F3F4F6"   # average row background — brand neutral-100
 
 
 def _level_scores(avg_score: Optional[float]) -> list[float]:
@@ -67,9 +65,11 @@ def _cell_bg(score: float) -> str:
 
 def _text_color(bg: str) -> str:
     """Return dark or light text for readability on the given hex background."""
-    # Security (#0D5265) and a few others are very dark — use white text
-    dark_backgrounds = {"#0D5265", "#7630EA", "#9333EA", "#0066CC", "#D04830"}
-    return "#FFFFFF" if bg in dark_backgrounds else "#1A1A2E"
+    dark_backgrounds = {
+        "#0F2744", "#DC2626", "#7C3AED", "#2563EB", "#0D9488",
+        "#6366F1", "#374151", "#5B21B6", "#0369A1", "#047857", "#9333EA",
+    }
+    return "#FFFFFF" if bg in dark_backgrounds else "#111827"
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -119,11 +119,11 @@ def render_heatmap_html(dom_scores: list[dict]) -> str:
             cells += (
                 f'<td style="background:{bg};text-align:center;'
                 f'font-family:\'JetBrains Mono\',monospace;font-size:.78rem;'
-                f'font-weight:600;color:#1A1A2E;padding:.4rem .3rem;">{pct}</td>'
+                f'font-weight:600;color:#111827;padding:.4rem .3rem;">{pct}</td>'
             )
         level_rows += (
             f'<tr>'
-            f'<td style="background:#666666;color:#FFFFFF;font-weight:700;'
+            f'<td style="background:#374151;color:#FFFFFF;font-weight:700;'
             f'font-size:.72rem;padding:.4rem .6rem;white-space:nowrap;">'
             f'L{lv_num}<br><span style="font-weight:400;font-size:.65rem;">{lv_name}</span>'
             f'</td>'
@@ -138,7 +138,7 @@ def render_heatmap_html(dom_scores: list[dict]) -> str:
         avg_cells += (
             f'<td style="background:{_GRAY};text-align:center;'
             f'font-family:\'JetBrains Mono\',monospace;font-size:.78rem;'
-            f'font-weight:700;color:#1A1A2E;padding:.4rem .3rem;">{val}</td>'
+            f'font-weight:700;color:#111827;padding:.4rem .3rem;">{val}</td>'
         )
 
     # ── Target row ───────────────────────────────────────────────────────────
@@ -149,13 +149,13 @@ def render_heatmap_html(dom_scores: list[dict]) -> str:
         tgt_cells += (
             f'<td style="background:#EEF1F5;text-align:center;'
             f'font-family:\'JetBrains Mono\',monospace;font-size:.78rem;'
-            f'font-weight:600;color:#5A6570;padding:.4rem .3rem;">{val}</td>'
+            f'font-weight:600;color:#6B7280;padding:.4rem .3rem;">{val}</td>'
         )
 
     # ── Legend ───────────────────────────────────────────────────────────────
     legend = (
         '<div style="display:flex;gap:1.2rem;margin-bottom:1rem;align-items:center;'
-        'font-size:.72rem;color:#5A6570;">'
+        'font-size:.72rem;color:#6B7280;">'
         f'<span style="display:flex;align-items:center;gap:.4rem;">'
         f'<span style="width:14px;height:14px;background:{_GREEN};border:1px solid #ccc;border-radius:2px;display:inline-block"></span>Fully achieved (100%)</span>'
         f'<span style="display:flex;align-items:center;gap:.4rem;">'
@@ -171,9 +171,9 @@ def render_heatmap_html(dom_scores: list[dict]) -> str:
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-  body {{ font-family:'Inter',sans-serif; background:#fff; padding:.5rem 0; }}
+  body {{ font-family:'Inter',sans-serif; background:#F9FAFB; padding:.5rem 0; }}
   table {{ border-collapse:collapse; width:100%; }}
-  th, td {{ border:1px solid #E0E4EA; }}
+  th, td {{ border:1px solid #D1D5DB; }}
 </style>
 </head><body>
 {legend}
@@ -181,7 +181,7 @@ def render_heatmap_html(dom_scores: list[dict]) -> str:
 <table>
 <thead>
   <tr>
-    <th style="background:#CCCCCC;font-size:.7rem;font-weight:700;
+    <th style="background:#D1D5DB;font-size:.7rem;font-weight:700;
                padding:.4rem .6rem;text-transform:uppercase;letter-spacing:.06em;
                color:#333;white-space:nowrap;">Level</th>
     {header_cells}
@@ -191,14 +191,14 @@ def render_heatmap_html(dom_scores: list[dict]) -> str:
 {level_rows}
   <tr>
     <td style="background:{_GRAY};font-size:.72rem;font-weight:700;
-               padding:.4rem .6rem;color:#1A1A2E;white-space:nowrap;">Avg Maturity<br>
-      <span style="font-weight:400;font-size:.65rem;color:#5A6570;">(1–5 scale)</span>
+               padding:.4rem .6rem;color:#111827;white-space:nowrap;">Avg Maturity<br>
+      <span style="font-weight:400;font-size:.65rem;color:#6B7280;">(1–5 scale)</span>
     </td>
     {avg_cells}
   </tr>
   <tr>
     <td style="background:#EEF1F5;font-size:.72rem;font-weight:700;
-               padding:.4rem .6rem;color:#5A6570;white-space:nowrap;">Target</td>
+               padding:.4rem .6rem;color:#6B7280;white-space:nowrap;">Target</td>
     {tgt_cells}
   </tr>
 </tbody>
@@ -231,7 +231,7 @@ def generate_heatmap_excel(
         return PatternFill("solid", fgColor=hex_color.lstrip("#"))
 
     def _thin_border() -> Border:
-        s = Side(style="thin", color="E0E4EA")
+        s = Side(style="thin", color="D1D5DB")
         return Border(left=s, right=s, top=s, bottom=s)
 
     wb = Workbook()
@@ -244,7 +244,7 @@ def generate_heatmap_excel(
     # ── Row 1: Title ─────────────────────────────────────────────────────────
     ws["B1"] = "Maturity Heatmap"
     ws["B1"].font = Font(bold=True, size=14)
-    ws["B1"].fill = _hex_fill("CCCCCC")
+    ws["B1"].fill = _hex_fill("D1D5DB")
 
     # ── Row 2: Metadata ───────────────────────────────────────────────────────
     meta_parts = []
@@ -255,12 +255,12 @@ def generate_heatmap_excel(
     if use_case_name:
         meta_parts.append(f"Use Case: {use_case_name}")
     ws["B2"] = "  |  ".join(meta_parts)
-    ws["B2"].font = Font(size=9, color="5A6570")
+    ws["B2"].font = Font(size=9, color="6B7280")
 
     # ── Row 4: Domain headers ─────────────────────────────────────────────────
     ws["B4"] = "Level"
-    ws["B4"].font      = Font(bold=True, size=9, color="333333")
-    ws["B4"].fill      = _hex_fill("CCCCCC")
+    ws["B4"].font      = Font(bold=True, size=9, color="374151")
+    ws["B4"].fill      = _hex_fill("D1D5DB")
     ws["B4"].alignment = Alignment(horizontal="center", vertical="center")
     ws["B4"].border    = _thin_border()
 
@@ -269,8 +269,9 @@ def generate_heatmap_excel(
         cell = ws[f"{col_letter}4"]
         color = DOMAIN_COLORS.get(d, _DEFAULT_COLOR)
         tc    = "FFFFFF" if color in {
-            "#0D5265", "#7630EA", "#9333EA", "#0066CC", "#D04830"
-        } else "1A1A2E"
+            "#0F2744", "#DC2626", "#7C3AED", "#2563EB", "#0D9488",
+            "#6366F1", "#374151", "#5B21B6", "#0369A1", "#047857", "#9333EA",
+        } else "111827"
         cell.value     = d
         cell.font      = Font(bold=True, size=8, color=tc)
         cell.fill      = _hex_fill(color)
@@ -289,7 +290,7 @@ def generate_heatmap_excel(
         label_cell = ws[f"B{xls_row}"]
         label_cell.value     = f"L{lv_num} — {lv_name}"
         label_cell.font      = Font(bold=True, size=8, color="FFFFFF")
-        label_cell.fill      = _hex_fill("666666")
+        label_cell.fill      = _hex_fill("374151")
         label_cell.alignment = Alignment(horizontal="center", vertical="center")
         label_cell.border    = _thin_border()
         ws.row_dimensions[xls_row].height = 20
@@ -316,7 +317,7 @@ def generate_heatmap_excel(
     avg_cell = ws[f"B{avg_row}"]
     avg_cell.value     = "Avg Maturity (1–5)"
     avg_cell.font      = Font(bold=True, size=8)
-    avg_cell.fill      = _hex_fill("D9D9D9")
+    avg_cell.fill      = _hex_fill("F3F4F6")
     avg_cell.alignment = Alignment(horizontal="center", vertical="center",
                                     wrap_text=True)
     avg_cell.border    = _thin_border()
@@ -330,7 +331,7 @@ def generate_heatmap_excel(
         cell.value     = val
         cell.number_format = "0.0"
         cell.font      = Font(bold=True, size=9)
-        cell.fill      = _hex_fill("D9D9D9")
+        cell.fill      = _hex_fill("F3F4F6")
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border    = _thin_border()
 
@@ -339,7 +340,7 @@ def generate_heatmap_excel(
     tgt_cell = ws[f"B{tgt_row}"]
     tgt_cell.value     = "Target Maturity"
     tgt_cell.font      = Font(bold=True, size=8)
-    tgt_cell.fill      = _hex_fill("EEF1F5")
+    tgt_cell.fill      = _hex_fill("F3F4F6")
     tgt_cell.alignment = Alignment(horizontal="center", vertical="center")
     tgt_cell.border    = _thin_border()
     ws.row_dimensions[tgt_row].height = 18
@@ -350,8 +351,8 @@ def generate_heatmap_excel(
         val = int(row_data["target"]) if row_data and row_data.get("target") is not None else None
         cell = ws[f"{col_letter}{tgt_row}"]
         cell.value     = val
-        cell.font      = Font(bold=True, size=9, color="5A6570")
-        cell.fill      = _hex_fill("EEF1F5")
+        cell.font      = Font(bold=True, size=9, color="6B7280")
+        cell.fill      = _hex_fill("F3F4F6")
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border    = _thin_border()
 
@@ -360,7 +361,7 @@ def generate_heatmap_excel(
     gap_cell = ws[f"B{gap_row}"]
     gap_cell.value     = "Gap"
     gap_cell.font      = Font(bold=True, size=8)
-    gap_cell.fill      = _hex_fill("EEF1F5")
+    gap_cell.fill      = _hex_fill("F3F4F6")
     gap_cell.alignment = Alignment(horizontal="center", vertical="center")
     gap_cell.border    = _thin_border()
     ws.row_dimensions[gap_row].height = 18
@@ -407,7 +408,7 @@ def generate_heatmap_excel(
 
     # ── Copyright ─────────────────────────────────────────────────────────────
     ws[f"B{legend_row + 2}"] = "© Copyright 2018–2025 Hewlett Packard Enterprise Development LP"
-    ws[f"B{legend_row + 2}"].font = Font(size=7, color="8A929A")
+    ws[f"B{legend_row + 2}"].font = Font(size=7, color="6B7280")
 
     # ── Freeze panes (keep level column and domain header visible) ────────────
     ws.freeze_panes = "C5"
