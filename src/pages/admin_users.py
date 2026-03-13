@@ -10,8 +10,11 @@ import streamlit as st
 import yaml
 from yaml.loader import SafeLoader
 
-_AUTH_CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "auth_config.yaml"
+# AUTH_CONFIG_PATH env var allows Fly.io deployment to read from /data/auth_config.yaml
+# (the persistent volume).  Falls back to project root for local Docker dev.
+_AUTH_CONFIG_PATH = os.getenv(
+    "AUTH_CONFIG_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "..", "auth_config.yaml"),
 )
 
 

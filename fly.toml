@@ -11,6 +11,7 @@ primary_region = 'syd'
 [env]
   MERIDANT_FRAMEWORKS_DB_PATH = "/data/meridant_frameworks.db"
   MERIDANT_ASSESSMENTS_DB_PATH = "/data/meridant.db"
+  AUTH_CONFIG_PATH = "/data/auth_config.yaml"
 
 [http_service]
   internal_port = 8501

@@ -460,7 +460,6 @@ Each assessment has: 3 questions per capability, 8 gap recommendations, executiv
 - UC 32 (Datacenter Transformation): 6 domains, all caps (Security=18, Applications=4, Data=3, People=3, + 2 others)
 
 ### Pending Work
-- **Priority 1.2** — Consultant attribution: `ALTER TABLE Assessment ADD COLUMN consultant_name TEXT` (inline migration); populate from `st.session_state["authenticated_username"]` in `save_assessment()`; display in assessment list and exports
 - **Priority 2.1** — Assessment list page (`src/pages/assessments.py`): table view with Resume/View/Archive actions; `list_assessments()` already exists in `assessment_store.py`
 - **Priority 2.2** — Resume assessment: load via `load_assessment()`, determine `wizard_step` from DB state, redirect to wizard at correct step
 - **Priority 2.3** — Status management: `in_progress` → `complete` → `archived` transitions; "Mark Complete" button at Step 6; archived filter in list
@@ -581,10 +580,12 @@ Features are grouped by theme and sequenced by priority. Within each group, item
 - Features: current user list with role badges, add user form (bcrypt hashes in-app), remove user (with confirm + last-admin protection), change password
 - Writes directly to `auth_config.yaml` — new users can log in immediately, no restart required
 
-**1.2 — Consultant attribution on Assessment**
-- Add `consultant_name` TEXT column to `Assessment` table via `ALTER TABLE` (follow same inline migration pattern as `findings_narrative` / `_ensure_narrative_column()`)
-- Populate from `st.session_state.authenticated_username` at assessment creation in Step 1
-- Display consultant name in assessment list view and report exports
+**1.2 — Consultant attribution on Assessment** ✅ COMPLETE
+- `_ensure_consultant_column()` in `assessment_store.py` — inline `ALTER TABLE Assessment ADD COLUMN consultant_name TEXT` (memoized, no-op if column exists)
+- `save_assessment()` writes `session.get("authenticated_username", "")` into the column at creation
+- `list_assessments()` returns `COALESCE(a.consultant_name, '')` — column in SELECT
+- Step 1 assessment picker (`_fmt_assessment()` in `create_assessment.py`) appends consultant to the label suffix when non-empty
+- Column already live in DB; existing assessments show NULL (pre-auth — expected)
 
 **1.3 — Secrets hygiene audit** ✅ COMPLETE
 - `.env` in `.gitignore` ✓ (line 3)

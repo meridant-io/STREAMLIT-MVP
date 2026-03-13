@@ -43,7 +43,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Authentication ────────────────────────────────────────────────────────────
-_AUTH_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "auth_config.yaml")
+# AUTH_CONFIG_PATH env var allows Fly.io deployment to read from /data/auth_config.yaml
+# (the persistent volume).  Falls back to project root for local Docker dev.
+_AUTH_CONFIG_PATH = os.getenv(
+    "AUTH_CONFIG_PATH",
+    os.path.join(os.path.dirname(__file__), "auth_config.yaml"),
+)
+
+if not os.path.exists(_AUTH_CONFIG_PATH):
+    st.error(
+        f"**Auth config not found:** `{_AUTH_CONFIG_PATH}`\n\n"
+        "Upload `auth_config.yaml` to the Fly.io volume:\n\n"
+        "```\nfly machine start --app streamlit-mvp\n"
+        "fly ssh sftp shell --app streamlit-mvp\n"
+        "put auth_config.yaml /data/auth_config.yaml\n"
+        "exit\nfly deploy\n```"
+    )
+    st.stop()
 
 with open(_AUTH_CONFIG_PATH) as f:
     _auth_config = yaml.load(f, Loader=SafeLoader)
