@@ -1,4 +1,4 @@
-# CLAUDE.md — E2CAF Assessment Platform
+# CLAUDE.md — Meridant Matrix
 
 > Project briefing for Claude Code. Read this at the start of every session.
 > Maintained by: Vernon Rauch | Last updated: 2026-03-13
@@ -7,14 +7,18 @@
 
 ## What This Project Is
 
-The **E2CAF Assessment Platform** (internally "Assessment MVP") is a Streamlit web application backed by a local SQLite database. It enables HPE consultants to conduct structured capability maturity assessments for enterprise clients, aligned to the **Edge-to-Cloud Adoption Framework (E2CAF)** — HPE's proprietary transformation framework.
+**Meridant Matrix** is a Streamlit web application backed by a local SQLite database. It is the core platform product of the **Meridant** brand — a multi-framework capability maturity assessment platform built for HPE consultants and designed for future commercial licensing.
+
+The platform currently supports E2CAF (Edge-to-Cloud Adoption Framework) as its first loaded framework, with the architecture evolving toward pluggable framework support (NIST CSF, CSA CCM, ISO 27001, CMMI and others).
 
 The platform supports:
 - Predefined and custom use-case-driven assessments
 - AI-generated capability discovery, question generation, and findings narrative
 - AI-generated transformation roadmap with Gantt visualisation and Excel export
 - Per-capability and per-domain gap analysis with maturity heatmap
-- Full E2CAF framework management (capabilities, maturity levels, interdependencies, versioning)
+- Full framework management (capabilities, maturity levels, interdependencies, versioning)
+
+> **Note:** The codebase still contains legacy references to "E2CAF", "TMM", and `Next_*` table prefixes. These will be cleaned up as part of the planned product rename and DB split effort (see Roadmap Priority 8 and ADR-009).
 
 ---
 
@@ -514,6 +518,336 @@ At the end of a productive session, create or update `docs/session_notes.md` wit
 2. What is in progress / partially done
 3. Exact next action to take at the start of the next session
 4. Any decisions made that should be reflected back into this CLAUDE.md
+
+---
+
+*This file is the source of truth for Claude Code context. Keep it current.*
+
+---
+
+## Roadmap & Planned Features
+
+Features are grouped by theme and sequenced by priority. Within each group, items are ordered — build top-to-bottom unless there is a dependency reason to reorder.
+
+### Priority 1 — Access Control & Authentication
+
+> Goal: Make the app safe to hand to another consultant without exposing client data or API keys.
+
+**1.1 — Login screen via `streamlit-authenticator`**
+- Add `streamlit-authenticator` to `requirements.txt`
+- Create `auth_config.yaml` at project root: stores hashed passwords, usernames, display names, session expiry. Never commit plaintext passwords.
+- Wrap `app.py` entry point — all pages require authenticated session before rendering
+- On successful login, capture `authenticated_username` into `st.session_state` for attribution
+- Rebuild Docker image after adding dependency (`docker compose up --build`)
+- Implementation note: ~30 lines in `app.py`, one config YAML, no DB changes required
+
+**1.2 — Consultant attribution on Assessment**
+- Add `consultant_name` TEXT column to `Assessment` table via `ALTER TABLE` (follow same inline migration pattern as `findings_narrative` / `_ensure_narrative_column()`)
+- Populate from `st.session_state.authenticated_username` at assessment creation in Step 1
+- Display consultant name in assessment list view and report exports
+
+**1.3 — Secrets hygiene audit**
+- Confirm `.env` is in `.gitignore`
+- Confirm `data/e2caf.db` is in `.gitignore`
+- Add `.env.example` to repo with placeholder values for `TMM_DB_PATH`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
+- If deploying to Fly.io: set `ANTHROPIC_API_KEY` as a Fly secret (`fly secrets set`), not in the image; DB must be on a persistent volume, not baked into the image
+
+---
+
+### Priority 2 — Assessment Management
+
+> Goal: Transform the app from a one-shot creation tool into a persistent engagement record that consultants can return to.
+
+**2.1 — Assessment list page (`src/pages/assessments.py`)**
+- New page added to sidebar nav between Dashboard and Create Assessment
+- Table view: assessment ID, client name, engagement name, use case, status, consultant, overall score, created date
+- Status badge: In Progress / Complete / Archived
+- Action buttons per row: Resume | View | Archive
+- Filter controls: by client, by status, by date range
+- Implementation note: `list_assessments()` already exists in `assessment_store.py` — extend it to return all needed columns
+
+**2.2 — Resume assessment**
+- "Resume" action on assessment list loads the assessment back into `st.session_state` via `load_assessment()` (already exists in `assessment_store.py`)
+- Determines last completed wizard step from DB state (has findings? has recommendations? etc.) and sets `wizard_step` accordingly
+- Redirects to `create_assessment.py` at the correct step
+
+**2.3 — Assessment status management**
+- Add `status` column transitions: `in_progress` → `complete` → `archived`
+- "Mark Complete" button at end of Step 6 (after export)
+- "Archive" soft-deletes from default list view (sets status='archived'); archived assessments accessible via filter toggle
+- No hard deletes — data is always retained
+
+**2.4 — Assessment detail / view mode**
+- Read-only view of a completed assessment (findings, recommendations, roadmap) without re-entering the wizard
+- Accessible from assessment list "View" action
+- Renders the same Bootstrap HTML components as the wizard steps but with no edit controls
+
+---
+
+### Priority 3 — Client Management
+
+> Goal: Clean up the `Client` table and give consultants control over client records without needing a DB tool.
+
+**3.1 — Client management panel (tab within admin page or standalone page)**
+- List all clients: name, industry, sector, country, assessment count
+- Add new client form
+- Edit existing client (name, industry, sector, country, notes)
+- Merge duplicates: select two client records → reassign all assessments to the surviving record → delete the duplicate
+- Implementation note: `Client` table is simple; no foreign key cascade issues beyond `Assessment.client_id`
+
+---
+
+### Priority 4 — Full Report Export
+
+> Goal: Produce a single client-ready deliverable from a completed assessment.
+
+**4.1 — Word document export (`src/report_writer.py`)**
+- New module using `python-docx`
+- Sections: Cover page (client, engagement, consultant, date), Executive Summary (from `Assessment.findings_narrative`), Domain Findings (heatmap summary table), Capability Gap Analysis (from `AssessmentFinding`), Recommendations (from `AssessmentRecommendation` — P1/P2/P3 grouped), Transformation Roadmap (phase summary + Gantt reference), Appendix (capability list with scores)
+- Triggered from assessment detail view and Step 6 export panel
+- Filename convention: `E2CAF_Assessment_{ClientName}_{Date}.docx`
+- Add `python-docx` to `requirements.txt` and rebuild image
+
+**4.2 — PowerPoint export (stretch goal — after 4.1)**
+- Slide deck version of the report for client presentation
+- Use `python-pptx`
+- Minimum viable: title slide, executive summary slide, domain heatmap slide, top 5 recommendations slide, roadmap Gantt slide
+
+---
+
+### Priority 5 — Framework Admin Panel
+
+> Goal: Give Vernon (and eventually other framework owners) visibility into the E2CAF framework state from within the app.
+
+**5.1 — Framework overview tab (within Dashboard or new page)**
+- Current published version + release date + version label (from `Next_FrameworkVersion`)
+- Capability count by domain (table + bar chart)
+- Change history log: last 20 entries from `Next_ChangeRecord` — table with change_category, change_type, record_label, rationale, changed_on
+- Interdependency count and interaction type breakdown
+
+**5.2 — Seed / reset controls (admin-only, protected by auth)**
+- "Re-seed test assessments" button — runs `seed_v3_assessments.py` logic inline (idempotent)
+- "Clear test data" button — removes the 6 seeded clients and their assessments (requires confirm dialog)
+- DB health check panel — row counts for all key tables, confirms schema columns present
+
+---
+
+### Priority 6 — Roadmap Persistence
+
+> Goal: Persist generated roadmaps to the DB so they survive session expiry and can be reloaded.
+
+**6.1 — `AssessmentRoadmap` table**
+- Currently roadmap is session-state only (`roadmap_data`). Add `AssessmentRoadmap` table to DB.
+- Schema: `id, assessment_id, phase, phase_label, initiative_title, capability_ids (JSON), effort, timeline_start, timeline_end, phase_narrative, generated_at`
+- `save_roadmap()` in `assessment_store.py` — idempotent (DELETE + INSERT pattern, consistent with `save_recommendations()`)
+- `load_roadmap()` in `assessment_store.py` — restores `roadmap_data` from DB on session hydration
+- Tie into `_hydrate_session_from_db()` alongside existing narrative and recommendations reload
+
+---
+
+### Priority 7 — Simulation Page
+
+> Goal: Complete the partially-built `src/pages/simulation.py` impact heatmap.
+
+**7.1 — Scenario impact simulation**
+- Domain × capability maturity grid showing current vs target delta
+- Source data: `Next_ScenarioCapabilityChange` (has data); `Next_ScenarioImpactCapability` (currently empty — populate or derive from assessment data)
+- Scenario selector: choose from `Next_TransformationScenario` or derive from a completed assessment
+- Heatmap colour: red (gap ≥ 2) → amber (gap = 1) → green (at or above target)
+- Export: Excel snapshot of the heatmap grid
+
+---
+
+### Priority 8 — Database Split, Rename & Sync Strategy
+
+> Goal: Separate framework data from assessment data, rename all DB files and references to align with the Meridant brand, and establish a reliable local ↔ Fly.io sync workflow. This is a one-time migration effort — do it all in a single session.
+
+**8.1 — Split the single DB into two purpose-specific databases**
+
+Current state: one file `data/e2caf.db` containing both framework and assessment data.
+
+Target state:
+
+| File | Contents | Ownership | Committed to git? |
+|---|---|---|---|
+| `data/meridant_frameworks.db` | All `Next_*` tables — framework IP | Local master → pushed to Fly.io on version release | No (too large) — managed via scripts |
+| `data/meridant.db` | All `Assessment*` + `Client` tables | Fly.io master → pulled locally for review | Never — contains client data |
+
+Migration steps:
+- Write `scripts/migrate_split_db.py` — copies `Next_*` tables into `meridant_frameworks.db` and `Assessment*` + `Client` tables into `meridant.db`
+- Script must be idempotent and verify row counts before and after
+- Update `tmm_client.py` → `meridant_client.py`: connect to both DBs using SQLite `ATTACH DATABASE` so existing cross-table queries continue to work without rewriting SQL
+- Update `.env`: replace `TMM_DB_PATH` with two vars: `MARIDANT_FRAMEWORKS_DB_PATH` and `MARIDANT_ASSESSMENTS_DB_PATH`
+- Update `docker-compose.yml` and `fly.toml` volume mounts accordingly
+- Update all `os.getenv("TMM_DB_PATH")` references across the codebase
+
+**8.2 — Full product rename across the codebase**
+
+Rename all legacy references in a single pass. Do not do partial renames — a mixed codebase is worse than a consistently named legacy one.
+
+| From | To | Files affected |
+|---|---|---|
+| `tmm_client.py` | `meridant_client.py` | All files that import it |
+| `TMMClient` | `MeridantClient` | `meridant_client.py` + all callers |
+| `TMM_DB_PATH` | `MARIDANT_FRAMEWORKS_DB_PATH` / `MARIDANT_ASSESSMENTS_DB_PATH` | `.env`, `.env.example`, all `os.getenv()` calls |
+| `e2caf.db` | `meridant_frameworks.db` / `meridant.db` | `docker-compose.yml`, `fly.toml`, docs |
+| `E2CAF Assessment Platform` | `Meridant Matrix` | `app.py`, page titles, sidebar nav, HTML components |
+| `Next_FrameworkVersion` labels | Update to `Meridant Benchmarks v1.x` | DB content update via script |
+| Filename convention in exports | `Meridant_Assessment_{Client}_{Date}.docx` | `report_writer.py`, `heatmap.py`, `roadmap.py` |
+| `seed_test_assessments.py` / `seed_v3_assessments.py` | Rename and update internal references | `scripts/` folder |
+
+**8.3 — `Next_*` table prefix migration (do alongside 8.1/8.2)**
+
+The `Next_` prefix was a transitional naming convention. Rename to `Framework_*` in `meridant_frameworks.db` and remove the prefix entirely from `Assessment*` tables (they are already unprefixed).
+
+- Write `scripts/migrate_table_names.py` — renames all `Next_*` tables to `Framework_*` using SQLite's `ALTER TABLE ... RENAME TO`
+- Update all SQL in `sql_templates.py` and inline references across engine/page files
+- Update all references in this CLAUDE.md
+- **This is the highest-effort part of the rename** — do a global search for `Next_` before starting and count the occurrences
+
+**8.4 — Local ↔ Fly.io sync workflow**
+
+Establish and document a clear convention for which DB flows in which direction:
+
+*Framework data (always flows local → Fly.io):*
+```bash
+# Push updated framework DB to Fly.io after a version release
+fly ssh sftp shell --app meridant-matrix
+put data/meridant_frameworks.db /data/meridant_frameworks.db
+```
+
+*Assessment data (flows Fly.io → local only for review/backup):*
+```bash
+# Pull live assessment data from Fly.io to local
+fly ssh sftp get /data/meridant.db ./data/meridant_backup_YYYYMMDD.db --app meridant-matrix
+```
+
+**Convention:** Never push local assessment data up to Fly.io — the Fly.io volume is the master for assessment data. Never commit either DB file to git.
+
+**8.5 — `.gitignore` and `.env.example` updates**
+
+Ensure the following are in `.gitignore`:
+```
+.env
+data/meridant.db
+data/meridant_frameworks.db
+data/*.db
+```
+
+Update `.env.example`:
+```bash
+MARIDANT_FRAMEWORKS_DB_PATH=/data/meridant_frameworks.db
+MARIDANT_ASSESSMENTS_DB_PATH=/data/meridant.db
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-sonnet-4-20250514
+```
+
+---
+
+## Architectural Decisions (ADRs)
+
+A lightweight log of key decisions made during development. Consult before proposing changes that touch these areas.
+
+---
+
+**ADR-001 — SQLite over PostgreSQL**
+*Decision:* Use SQLite as the sole database engine.
+*Rationale:* The platform is deployed by a single consultant on a local machine or a single Docker container. SQLite requires zero infrastructure, is trivially backed up (copy the file), and is sufficient for the concurrent load (one user at a time). Migrating to PostgreSQL is straightforward if multi-user or cloud deployment becomes a requirement — the `TMMClient` abstraction layer (`tmm_client.py`) isolates all DB calls.
+*Revisit when:* The platform is deployed to a shared server with multiple simultaneous users, or when the DB file exceeds ~1GB.
+
+---
+
+**ADR-002 — Docker-only runtime, no local venv**
+*Decision:* All Python dependencies live inside the Docker image. There is no local virtual environment.
+*Rationale:* Eliminates "works on my machine" issues when handing the tool to other consultants. The `Dockerfile` is the single source of truth for the runtime environment. `docker compose up --build` is always the correct start command — `docker compose restart` does not pick up code changes.
+*Constraint:* Claude Code must not attempt to run `pip install`, `python`, or `streamlit` directly in the shell. All execution happens inside the container via `docker compose exec app ...`.
+
+---
+
+**ADR-003 — No ORM**
+*Decision:* All SQL is written directly — in `sql_templates.py` for reusable queries, or inline in engine/page files for one-off queries.
+*Rationale:* The `Next_*` schema is complex, has known quirks (duplicate `CapabilityLevel` rows, CHECK constraints, sparse capability IDs), and was built incrementally via ALTER TABLE. An ORM layer would obscure these quirks rather than make them explicit. Raw SQL keeps the behaviour predictable and auditable.
+*Constraint:* Never introduce SQLAlchemy, Peewee, or any other ORM. Keep SQL in `sql_templates.py` unless it is truly one-off engine logic.
+
+---
+
+**ADR-004 — Streamlit components via `st.components.v1.html()` only**
+*Decision:* All rich UI (heatmaps, Gantt charts, capability cards, recommendation panels) is rendered as Bootstrap 5.3 dark HTML injected via `st.components.v1.html()`. Data is passed via `json.dumps()` into `const DATA = {...}` inside the HTML blob. Streamlit native widgets (buttons, forms) remain outside the component.
+*Rationale:* Streamlit's native widget set cannot produce the visual quality required for a consulting tool. Bootstrap + Chart.js inside `st.components.v1.html()` gives full CSS/JS control. Mixing Streamlit widgets inside HTML components causes event handling conflicts.
+*Constraint:* Never use `localStorage` or `sessionStorage` inside HTML components — these APIs are not reliably available in the Streamlit iframe context. Never put `st.button()` or `st.form()` inside the HTML blob.
+
+---
+
+**ADR-005 — AI calls centralised in `ai_client.py`**
+*Decision:* All Anthropic API calls live in `src/ai_client.py`. Page files and engine files call functions from `ai_client.py` — they never construct prompts or call the Anthropic client directly.
+*Rationale:* Centralises model version management (`ANTHROPIC_MODEL` env var), retry logic (`_call_with_retry()` with exponential backoff on 529 overload), and JSON fence stripping. Makes it straightforward to swap models or add caching without touching page logic.
+*Constraint:* Do not add `import anthropic` to any file other than `ai_client.py`.
+
+---
+
+**ADR-006 — Roadmap is session-state only (current)**
+*Decision:* The generated roadmap (`roadmap_data`) is held in `st.session_state` and not persisted to the DB.
+*Rationale:* Roadmap generation is fast and cheap relative to recommendations. Session-state was chosen for MVP speed. The roadmap is always regenerable from the recommendations data, which IS persisted.
+*Revisit when:* Assessment resume (ADR planned feature 6.1) is implemented — at that point roadmap persistence becomes necessary for a complete resume experience. See Roadmap item 6.1 for the planned `AssessmentRoadmap` table schema.
+
+---
+
+**ADR-007 — `AssessmentRecommendation` created inline, not via migration script**
+*Decision:* `AssessmentRecommendation` is created by `recommendation_engine.py` via `CREATE TABLE IF NOT EXISTS` on first run. It is not in a migration script.
+*Rationale:* The table was added late in development. Inline creation keeps it self-healing — if the table is missing it is recreated automatically without manual intervention.
+*Constraint:* The exact column list is documented in the Database section above and must be kept in sync. Do not add columns without updating both the `CREATE TABLE` statement in `recommendation_engine.py` and the column list in this file.
+
+---
+
+**ADR-009 — Split DB architecture: framework data vs assessment data (planned)**
+*Decision:* Separate the single `e2caf.db` file into two purpose-specific SQLite databases: `meridant_frameworks.db` (framework IP, local master) and `meridant.db` (assessment data, Fly.io master). Connected via SQLite `ATTACH DATABASE` in `meridant_client.py`.
+*Rationale:* Framework data and assessment data have fundamentally different ownership, lifecycle, and sensitivity. Framework data is Vernon's IP — it changes deliberately with version releases and always flows local → Fly.io. Assessment data is client-sensitive — it accumulates on Fly.io and should never be committed to git. A single DB conflates these concerns and makes sync error-prone. The split also provides a natural boundary for the future pluggable framework architecture (Meridant Benchmarks).
+*Constraint:* Never commit either DB file to git. Never push local assessment data up to Fly.io. Framework DB updates always originate locally and are pushed after a version increment. See Roadmap item 8 for the full migration plan.
+
+---
+
+**ADR-010 — Multi-framework architecture target state (future)**
+*Decision:* The platform is being designed toward a pluggable framework model where any registered framework (E2CAF, NIST CSF, CSA CCM, ISO 27001, CMMI, etc.) can be loaded and assessed against using the same engine.
+*Rationale:* The initial E2CAF-specific `Next_*` schema hardcodes the framework structure. To support multiple frameworks, the schema needs a `framework_id` foreign key on all framework tables, and the assessment engine needs to be framework-agnostic. This is the architecture that makes Meridant Benchmarks a distinct and valuable product — the content layer is separable from the platform engine.
+*Constraint:* Do not build new features that further hardcode E2CAF-specific assumptions into the engine or UI. When adding capabilities, ask: "would this work if a different framework were loaded?" If not, it needs to be abstracted. Full schema migration is planned as part of Roadmap Priority 8 and beyond.
+
+---
+
+## Brand Architecture
+
+Meridant is the master brand. All product and capability names are sub-brands under Meridant. Use the full sub-brand name (`Meridant Matrix`, not just `Matrix`) in all user-facing text, export filenames, page titles, and documentation.
+
+### Sub-brand Map
+
+| Sub-brand | Role | Current equivalent in codebase |
+|---|---|---|
+| **Meridant Matrix** | The platform — the full Streamlit application | `app.py` + all pages |
+| **Meridant Index** | The assessment engine — capability scoring, question generation, gap analysis, recommendations | `recommendation_engine.py` + `create_assessment.py` wizard |
+| **Meridant Insight** | Reporting and visualisation — heatmaps, Gantt charts, narrative exports | `heatmap.py` + `roadmap.py` + planned `report_writer.py` |
+| **Meridant Benchmarks** | The framework and model library — E2CAF today, multi-framework in future | `meridant_frameworks.db` + `Framework_*` tables |
+| **Meridant Studio** | Configuration and design workspace — framework authoring, use case management | `usecase_workspace.py` + planned framework admin panel |
+
+### Naming Conventions for Claude Code
+
+- Streamlit page titles: use sub-brand name where appropriate (e.g. "Meridant Insight — Assessment Report")
+- Export filenames: `Meridant_{SubBrand}_{ClientName}_{Date}.{ext}` (e.g. `Meridant_Insight_DeutscheBank_2026-03-13.docx`)
+- Python module names: use `meridant_` prefix for all new top-level modules (e.g. `meridant_client.py`, `meridant_report.py`)
+- DB files: `meridant_frameworks.db` and `meridant.db` — no other naming conventions
+- Never use "E2CAF", "TMM", or "Assessment MVP" in any new user-facing text, filenames, or comments
+- Internal framework content (capability names, domain names, version labels) still refers to "E2CAF" as the framework name — this is correct, E2CAF is the name of the framework loaded into Meridant Benchmarks, not the product itself
+
+### Trademark & IP Notes
+
+**Due diligence completed: 2026-03-13**
+- "Meridant" searched on USPTO TESS (Class 042) — no registered trademark or wordmark found
+- "Meridant Consulting" exists as a small business consulting firm with a minimal two-page web presence, no substantive service description, and no apparent enterprise software or IT market activity
+- Common law risk assessed as low — different market segment, different type of offering (software platform vs small business consulting), no USPTO filing to defend
+- No action required at current stage (internal HPE use only)
+
+**When commercialisation becomes concrete** (active licensing conversations): engage a US trademark attorney to file in Class 042. Budget $1,500–2,500. A likelihood-of-confusion response against Meridant Consulting is winnable given the distinctions above.
+
+- Sub-brand names (Matrix, Index, Insight, Benchmarks, Studio) are descriptive and not independently trademarkable — trademark protection derives from the Meridant master mark
+- E2CAF framework content loaded into Meridant Benchmarks is HPE IP — maintain clear separation between the platform (Meridant) and the framework content (E2CAF / HPE) in any commercial or licensing conversations
 
 ---
 

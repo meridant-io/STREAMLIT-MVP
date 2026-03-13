@@ -1,0 +1,198 @@
+<svg width="100%" viewBox="0 0 680 1180" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <style>
+    .section  { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 9px; fill: #6B7280; letter-spacing: 0.14em; }
+    .label    { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; fill: #111827; }
+    .sublabel { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 9px;  fill: #6B7280; letter-spacing: 0.04em; }
+    .hex      { font-family: 'Courier New', Courier, monospace; font-size: 9px; fill: #6B7280; }
+    .divider  { stroke: #E5E7EB; stroke-width: 0.5; }
+    .rule     { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10px; fill: #374151; }
+  </style>
+</defs>
+
+<!-- ── HEADER ── -->
+<rect x="0" y="0" width="680" height="64" fill="#0F2744"/>
+<!-- Small mark -->
+<g transform="translate(40, 16)">
+  <polyline points="0,32 11,6 20,20" fill="none" stroke="#F9FAFB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="20,20 29,2 40,32" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="4" y1="8" x2="36" y2="0" stroke="#2563EB" stroke-width="1" stroke-dasharray="2.5,2" stroke-linecap="round"/>
+  <circle cx="11" cy="6" r="2" fill="none" stroke="#F9FAFB" stroke-width="1.5"/>
+  <circle cx="29" cy="2" r="2" fill="#2563EB"/>
+</g>
+<text x="92" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20px" font-weight="300" fill="#F9FAFB" letter-spacing="0.08em">meridant</text>
+<text x="92" y="50" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="8px" fill="#93C5FD" letter-spacing="0.20em">BRAND STYLE GUIDE  v1.0</text>
+<text x="640" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="9px" fill="#6B7280" letter-spacing="0.06em" text-anchor="end">2026</text>
+
+<!-- ══ SECTION 1: COLOUR PALETTE ══ -->
+<text x="40" y="98" class="section">01 — COLOUR PALETTE</text>
+<line x1="40" y1="104" x2="640" y2="104" class="divider"/>
+
+<!-- Primary colours -->
+<text x="40" y="122" class="sublabel">PRIMARY</text>
+
+<!-- Navy -->
+<rect x="40"  y="130" width="80" height="60" rx="4" fill="#0F2744"/>
+<text x="80"  y="204" class="label" text-anchor="middle">Navy</text>
+<text x="80"  y="216" class="hex"  text-anchor="middle">#0F2744</text>
+
+<!-- Accent Blue -->
+<rect x="132" y="130" width="80" height="60" rx="4" fill="#2563EB"/>
+<text x="172" y="204" class="label" text-anchor="middle">Accent Blue</text>
+<text x="172" y="216" class="hex"  text-anchor="middle">#2563EB</text>
+
+<!-- White -->
+<rect x="224" y="130" width="80" height="60" rx="4" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="0.5"/>
+<text x="264" y="204" class="label" text-anchor="middle">White</text>
+<text x="264" y="216" class="hex"  text-anchor="middle">#F9FAFB</text>
+
+<!-- Secondary colours -->
+<text x="40" y="240" class="sublabel">SECONDARY — SUB-BRAND ACCENTS</text>
+
+<!-- Matrix blue -->
+<rect x="40"  y="248" width="56" height="40" rx="4" fill="#2563EB"/>
+<text x="68"  y="302" class="sublabel" text-anchor="middle">Matrix</text>
+<text x="68"  y="312" class="hex"      text-anchor="middle">#2563EB</text>
+
+<!-- Index indigo -->
+<rect x="108" y="248" width="56" height="40" rx="4" fill="#6366F1"/>
+<text x="136" y="302" class="sublabel" text-anchor="middle">Index</text>
+<text x="136" y="312" class="hex"      text-anchor="middle">#6366F1</text>
+
+<!-- Insight sky -->
+<rect x="176" y="248" width="56" height="40" rx="4" fill="#0EA5E9"/>
+<text x="204" y="302" class="sublabel" text-anchor="middle">Insight</text>
+<text x="204" y="312" class="hex"      text-anchor="middle">#0EA5E9</text>
+
+<!-- Benchmarks teal -->
+<rect x="244" y="248" width="56" height="40" rx="4" fill="#0D9488"/>
+<text x="272" y="302" class="sublabel" text-anchor="middle">Benchmarks</text>
+<text x="272" y="312" class="hex"      text-anchor="middle">#0D9488</text>
+
+<!-- Studio violet -->
+<rect x="312" y="248" width="56" height="40" rx="4" fill="#7C3AED"/>
+<text x="340" y="302" class="sublabel" text-anchor="middle">Studio</text>
+<text x="340" y="312" class="hex"      text-anchor="middle">#7C3AED</text>
+
+<!-- Neutral ramp -->
+<text x="40" y="336" class="sublabel">NEUTRALS</text>
+
+<rect x="40"  y="344" width="44" height="28" rx="3" fill="#111827"/>
+<text x="62"  y="384" class="hex" text-anchor="middle">#111827</text>
+
+<rect x="92"  y="344" width="44" height="28" rx="3" fill="#374151"/>
+<text x="114" y="384" class="hex" text-anchor="middle">#374151</text>
+
+<rect x="144" y="344" width="44" height="28" rx="3" fill="#6B7280"/>
+<text x="166" y="384" class="hex" text-anchor="middle">#6B7280</text>
+
+<rect x="196" y="344" width="44" height="28" rx="3" fill="#D1D5DB"/>
+<text x="218" y="384" class="hex" text-anchor="middle">#D1D5DB</text>
+
+<rect x="248" y="344" width="44" height="28" rx="3" fill="#F3F4F6" stroke="#E5E7EB" stroke-width="0.5"/>
+<text x="270" y="384" class="hex" text-anchor="middle">#F3F4F6</text>
+
+<!-- ══ SECTION 2: TYPOGRAPHY ══ -->
+<line x1="40" y1="404" x2="640" y2="404" class="divider"/>
+<text x="40" y="420" class="section">02 — TYPOGRAPHY</text>
+<line x1="40" y1="426" x2="640" y2="426" class="divider"/>
+
+<text x="40" y="444" class="sublabel">PRIMARY TYPEFACE — INTER</text>
+<text x="40" y="460" font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="9px" fill="#6B7280" letter-spacing="0.06em">Available at fonts.google.com/specimen/Inter — use for all UI, reports, and marketing</text>
+
+<!-- Type scale -->
+<text x="40"  y="496" font-family="'Inter', -apple-system, sans-serif" font-size="32px" font-weight="300" fill="#111827" letter-spacing="0.04em">meridant</text>
+<text x="400" y="490" class="sublabel">Display  /  32px  /  weight 300  /  tracking +0.04em</text>
+<text x="400" y="502" class="hex">Used for: hero wordmark, cover pages</text>
+
+<text x="40"  y="528" font-family="'Inter', -apple-system, sans-serif" font-size="22px" font-weight="400" fill="#111827">Heading One</text>
+<text x="400" y="524" class="sublabel">H1  /  22px  /  weight 400  /  tracking +0.02em</text>
+<text x="400" y="536" class="hex">Used for: page titles, section headers</text>
+
+<text x="40"  y="558" font-family="'Inter', -apple-system, sans-serif" font-size="16px" font-weight="500" fill="#111827">Heading Two</text>
+<text x="400" y="554" class="sublabel">H2  /  16px  /  weight 500  /  tracking 0</text>
+<text x="400" y="566" class="hex">Used for: card titles, sub-sections</text>
+
+<text x="40"  y="584" font-family="'Inter', -apple-system, sans-serif" font-size="14px" font-weight="400" fill="#374151">Body text — capability assessment findings and recommendations</text>
+<text x="400" y="582" class="sublabel">Body  /  14px  /  weight 400  /  line-height 1.7</text>
+<text x="400" y="594" class="hex">Used for: narrative text, descriptions</text>
+
+<text x="40"  y="610" font-family="'Inter', -apple-system, sans-serif" font-size="11px" font-weight="400" fill="#6B7280">Secondary label — domain, subdomain, metadata</text>
+<text x="400" y="608" class="sublabel">Label  /  11px  /  weight 400  /  color neutral-500</text>
+<text x="400" y="620" class="hex">Used for: table labels, metadata, hints</text>
+
+<text x="40"  y="636" font-family="'Inter', -apple-system, sans-serif" font-size="9px" font-weight="400" fill="#6B7280" letter-spacing="0.16em">CATEGORY TAG — UPPERCASE TRACKING</text>
+<text x="400" y="634" class="sublabel">Tag  /  9px  /  weight 400  /  tracking +0.16em  /  uppercase</text>
+<text x="400" y="646" class="hex">Used for: sub-brand tags, status pills, section labels</text>
+
+<!-- Secondary typeface -->
+<text x="40" y="668" class="sublabel">SECONDARY TYPEFACE — JETBRAINS MONO</text>
+<text x="40" y="684" font-family="'JetBrains Mono', 'Courier New', monospace" font-size="13px" font-weight="400" fill="#374151">capability_id: 247  score: 3.4 / 5.0  gap: 1.6</text>
+<text x="400" y="680" class="sublabel">Mono  /  13px  /  weight 400</text>
+<text x="400" y="692" class="hex">Used for: scores, IDs, code, data values in UI</text>
+
+<!-- ══ SECTION 3: MARK USAGE ══ -->
+<line x1="40" y1="712" x2="640" y2="712" class="divider"/>
+<text x="40" y="728" class="section">03 — MARK USAGE</text>
+<line x1="40" y1="734" x2="640" y2="734" class="divider"/>
+
+<!-- On white -->
+<rect x="40" y="744" width="130" height="80" rx="4" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="0.5"/>
+<g transform="translate(72, 762)">
+  <polyline points="0,32 11,6 20,20" fill="none" stroke="#0F2744" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="20,20 29,2 40,32" fill="none" stroke="#2563EB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="4" y1="8" x2="36" y2="0" stroke="#2563EB" stroke-width="1" stroke-dasharray="2.5,2" stroke-linecap="round"/>
+  <circle cx="11" cy="6" r="2" fill="none" stroke="#0F2744" stroke-width="1.6"/>
+  <circle cx="29" cy="2" r="2" fill="#2563EB"/>
+</g>
+<text x="105" y="840" class="sublabel" text-anchor="middle">On white</text>
+
+<!-- On navy -->
+<rect x="186" y="744" width="130" height="80" rx="4" fill="#0F2744"/>
+<g transform="translate(218, 762)">
+  <polyline points="0,32 11,6 20,20" fill="none" stroke="#F9FAFB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="20,20 29,2 40,32" fill="none" stroke="#2563EB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="4" y1="8" x2="36" y2="0" stroke="#2563EB" stroke-width="1" stroke-dasharray="2.5,2" stroke-linecap="round"/>
+  <circle cx="11" cy="6" r="2" fill="none" stroke="#F9FAFB" stroke-width="1.6"/>
+  <circle cx="29" cy="2" r="2" fill="#2563EB"/>
+</g>
+<text x="251" y="840" class="sublabel" text-anchor="middle" fill="#6B7280">On navy</text>
+
+<!-- On accent -->
+<rect x="332" y="744" width="130" height="80" rx="4" fill="#2563EB"/>
+<g transform="translate(364, 762)">
+  <polyline points="0,32 11,6 20,20" fill="none" stroke="#F9FAFB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="20,20 29,2 40,32" fill="none" stroke="#F9FAFB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="4" y1="8" x2="36" y2="0" stroke="white" stroke-width="1" stroke-dasharray="2.5,2" stroke-linecap="round" opacity="0.7"/>
+  <circle cx="11" cy="6" r="2" fill="none" stroke="#F9FAFB" stroke-width="1.6"/>
+  <circle cx="29" cy="2" r="2" fill="white"/>
+</g>
+<text x="397" y="840" class="sublabel" text-anchor="middle" fill="#6B7280">On accent — white only</text>
+
+<!-- ══ SECTION 4: USAGE RULES ══ -->
+<line x1="40" y1="862" x2="640" y2="862" class="divider"/>
+<text x="40" y="878" class="section">04 — USAGE RULES</text>
+<line x1="40" y1="884" x2="640" y2="884" class="divider"/>
+
+<!-- Do -->
+<text x="40"  y="904" font-family="-apple-system, sans-serif" font-size="10px" font-weight="500" fill="#0D9488" letter-spacing="0.06em">DO</text>
+<text x="40"  y="920" class="rule">— Always use the full lockup (mark + wordmark) at primary size</text>
+<text x="40"  y="936" class="rule">— Use mark alone only at favicon / app icon scale (≤ 32px)</text>
+<text x="40"  y="952" class="rule">— Always pair sub-brand name in the accent colour for that product</text>
+<text x="40"  y="968" class="rule">— Maintain minimum clear space equal to the mark height on all sides</text>
+<text x="40"  y="984" class="rule">— Use Inter Light (300) for the wordmark at display sizes</text>
+
+<!-- Don't -->
+<text x="40" y="1010" font-family="-apple-system, sans-serif" font-size="10px" font-weight="500" fill="#DC2626" letter-spacing="0.06em">DO NOT</text>
+<text x="40" y="1026" class="rule">— Do not recolour the navy or accent outside the approved palette</text>
+<text x="40" y="1042" class="rule">— Do not stretch, skew, or rotate the mark</text>
+<text x="40" y="1058" class="rule">— Do not place the mark on a busy photographic background</text>
+<text x="40" y="1074" class="rule">— Do not use the wordmark without the mark at primary size</text>
+<text x="40" y="1090" class="rule">— Do not use "E2CAF", "TMM", or "Assessment MVP" in any user-facing context</text>
+
+<!-- Footer -->
+<line x1="40" y1="1118" x2="640" y2="1118" class="divider"/>
+<text x="40"  y="1136" class="sublabel">Meridant Brand Style Guide  v1.0  —  2026</text>
+<text x="640" y="1136" class="sublabel" text-anchor="end">Internal use — HPE Consulting</text>
+
+</svg>
