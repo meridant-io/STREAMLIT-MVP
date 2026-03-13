@@ -5,6 +5,7 @@ from datetime import datetime
 from src.meridant_client import MeridantClient
 
 _narrative_column_ensured = False
+_consultant_column_ensured = False
 
 
 def _ensure_narrative_column(client: MeridantClient) -> None:
@@ -20,6 +21,21 @@ def _ensure_narrative_column(client: MeridantClient) -> None:
     except Exception:
         pass  # Column already exists
     _narrative_column_ensured = True
+
+
+def _ensure_consultant_column(client: MeridantClient) -> None:
+    """
+    Add consultant_name column to Assessment if it doesn't already exist.
+    Memoized — only runs the ALTER TABLE once per process.
+    """
+    global _consultant_column_ensured
+    if _consultant_column_ensured:
+        return
+    try:
+        client.write("ALTER TABLE Assessment ADD COLUMN consultant_name TEXT", [])
+    except Exception:
+        pass  # Column already exists
+    _consultant_column_ensured = True
 
 
 def save_narrative(client: MeridantClient, assessment_id: int, narrative: str) -> None:
@@ -66,12 +82,13 @@ def save_assessment(client: MeridantClient, session: dict) -> int:
         client_id = result["lastrowid"]
 
     # ── 2. Insert Assessment header ──
+    _ensure_consultant_column(client)
     result = client.write(
         """
         INSERT INTO Assessment
             (client_id, engagement_name, use_case_name, intent_text,
-             usecase_id, assessment_mode, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?)
+             usecase_id, assessment_mode, consultant_name, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'in_progress', ?)
         """,
         [
             client_id,
@@ -80,6 +97,7 @@ def save_assessment(client: MeridantClient, session: dict) -> int:
             session.get("intent_text", ""),
             session.get("selected_usecase_id"),          # FK to Next_UseCase — NULL for custom
             session.get("assessment_mode", "custom"),
+            session.get("authenticated_username", ""),
             datetime.now().isoformat(),
         ]
     )
@@ -315,7 +333,8 @@ def list_assessments(client: MeridantClient) -> list[dict]:
     """Return a summary list of all assessments, newest first."""
     res = client.query("""
         SELECT a.id, c.client_name, a.engagement_name, a.use_case_name,
-               a.status, a.created_at, a.overall_score
+               a.status, a.created_at, a.overall_score,
+               COALESCE(a.consultant_name, '') AS consultant_name
         FROM Assessment a
         LEFT JOIN Client c ON a.client_id = c.id
         ORDER BY a.created_at DESC

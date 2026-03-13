@@ -31,7 +31,32 @@ The platform supports:
 | AI | Anthropic API (`claude-sonnet-4-20250514`) via `src/ai_client.py` |
 | DB client | Custom `TMMClient` in `src/tmm_client.py` — no ORM |
 | Environment | `.env` file with `TMM_DB_PATH` and `ANTHROPIC_API_KEY` |
+| Auth | `streamlit-authenticator==0.3.3` — YAML-based credential store (`auth_config.yaml`, bcrypt-hashed passwords, volume-mounted) |
 | Python | 3.11+ |
+
+---
+
+## Brand Palette
+
+Applied consistently across all UI modules (`dashboard.py`, `roadmap.py`, `heatmap.py`, `app.py`).
+
+| Token | Hex | Usage |
+|---|---|---|
+| Navy | `#0F2744` | Sidebar bg, primary dark headers |
+| Accent Blue | `#2563EB` | CTAs, links, highlights |
+| White | `#F9FAFB` | Body bg, text on dark |
+| Neutral Dark | `#111827` | Body text |
+| Neutral Mid | `#374151` | Secondary text, borders |
+| Neutral Light | `#6B7280` | Muted text, metadata |
+| Border | `#D1D5DB` | Dividers, table borders |
+| Surface | `#F3F4F6` | Alternate row bg |
+| Index (sub-brand) | `#6366F1` | AI/Index features |
+| Insight (sub-brand) | `#0EA5E9` | Charts, visualisations |
+| Benchmarks (sub-brand) | `#0D9488` | Framework/green positive |
+| Studio (sub-brand) | `#7C3AED` | Config/admin |
+
+**Domain colours (12 domains, same order in Python `DOMAIN_COLORS` dict and JS arrays):**
+`#0F2744`, `#DC2626`, `#7C3AED`, `#2563EB`, `#0D9488`, `#6366F1`, `#0EA5E9`, `#374151`, `#5B21B6`, `#0369A1`, `#047857`, `#9333EA`
 
 ---
 
@@ -42,6 +67,7 @@ The platform supports:
 ├── CLAUDE.md                        ← this file
 ├── app.py                           ← Streamlit entry point (sidebar nav: Dashboard / Create Assessment / Architecture)
 ├── .env                             ← TMM_DB_PATH, ANTHROPIC_API_KEY (never commit)
+├── auth_config.yaml                 ← User credentials (bcrypt hashes) + admins list. Never commit. Volume-mounted into container.
 ├── requirements.txt
 ├── Dockerfile
 ├── docker-compose.yml
@@ -71,6 +97,7 @@ The platform supports:
         ├── create_assessment.py     ← 6-step assessment wizard (primary workflow)
         ├── simulation.py            ← Scenario impact simulation (partial)
         ├── usecase_workspace.py     ← Use case management
+        ├── admin_users.py           ← User management UI (admin-only: add/remove users, change passwords, bcrypt in-app)
         └── architecture.py          ← Architecture page stub
 ```
 
@@ -433,6 +460,11 @@ Each assessment has: 3 questions per capability, 8 gap recommendations, executiv
 - UC 32 (Datacenter Transformation): 6 domains, all caps (Security=18, Applications=4, Data=3, People=3, + 2 others)
 
 ### Pending Work
+- **Priority 1.2** — Consultant attribution: `ALTER TABLE Assessment ADD COLUMN consultant_name TEXT` (inline migration); populate from `st.session_state["authenticated_username"]` in `save_assessment()`; display in assessment list and exports
+- **Priority 2.1** — Assessment list page (`src/pages/assessments.py`): table view with Resume/View/Archive actions; `list_assessments()` already exists in `assessment_store.py`
+- **Priority 2.2** — Resume assessment: load via `load_assessment()`, determine `wizard_step` from DB state, redirect to wizard at correct step
+- **Priority 2.3** — Status management: `in_progress` → `complete` → `archived` transitions; "Mark Complete" button at Step 6; archived filter in list
+- **Priority 2.4** — Assessment detail/view mode: read-only Bootstrap HTML view of findings/recommendations/roadmap
 - `src/pages/simulation.py` — impact heatmap (domain × capability grid). `Next_ScenarioImpactCapability` is empty; `Next_ScenarioCapabilityChange` has data
 - `Next_ValueTheme` table is empty — value theme assignment for roadmap steps not yet implemented
 - Dashboard awareness of completed assessments — summary widget not yet built
@@ -480,6 +512,10 @@ ANTHROPIC_MODEL=claude-sonnet-4-20250514   # optional override
 # Run the app (only supported method)
 docker compose up --build            # ALWAYS use --build — code changes are not picked up otherwise
 docker compose up --build -d         # detached mode
+
+# Add/remove users without rebuild:
+# Edit auth_config.yaml (passwords are bcrypt-hashed via Admin page in-app)
+# then: docker compose restart       ← picks up YAML changes without --build
 
 # Stop
 docker compose down
@@ -533,24 +569,28 @@ Features are grouped by theme and sequenced by priority. Within each group, item
 
 > Goal: Make the app safe to hand to another consultant without exposing client data or API keys.
 
-**1.1 — Login screen via `streamlit-authenticator`**
-- Add `streamlit-authenticator` to `requirements.txt`
-- Create `auth_config.yaml` at project root: stores hashed passwords, usernames, display names, session expiry. Never commit plaintext passwords.
-- Wrap `app.py` entry point — all pages require authenticated session before rendering
-- On successful login, capture `authenticated_username` into `st.session_state` for attribution
-- Rebuild Docker image after adding dependency (`docker compose up --build`)
-- Implementation note: ~30 lines in `app.py`, one config YAML, no DB changes required
+**1.1 — Login screen via `streamlit-authenticator`** ✅ COMPLETE
+- `streamlit-authenticator==0.3.3` added to `requirements.txt`
+- `auth_config.yaml` at project root: bcrypt-hashed passwords, usernames, display names, session expiry, `admins` list. Volume-mounted (not `:ro`) so changes picked up on `docker compose restart`.
+- `app.py` wrapped — all pages require authenticated session before rendering
+- `authenticated_username` captured into `st.session_state` for attribution (Priority 1.2)
+- `admins` list in `auth_config.yaml` controls which users see the Admin nav item
+
+**1.1b — User admin page** ✅ COMPLETE
+- `src/pages/admin_users.py` — admin-only page (visible only to users in `admins` list)
+- Features: current user list with role badges, add user form (bcrypt hashes in-app), remove user (with confirm + last-admin protection), change password
+- Writes directly to `auth_config.yaml` — new users can log in immediately, no restart required
 
 **1.2 — Consultant attribution on Assessment**
 - Add `consultant_name` TEXT column to `Assessment` table via `ALTER TABLE` (follow same inline migration pattern as `findings_narrative` / `_ensure_narrative_column()`)
 - Populate from `st.session_state.authenticated_username` at assessment creation in Step 1
 - Display consultant name in assessment list view and report exports
 
-**1.3 — Secrets hygiene audit**
-- Confirm `.env` is in `.gitignore`
-- Confirm `data/e2caf.db` is in `.gitignore`
-- Add `.env.example` to repo with placeholder values for `TMM_DB_PATH`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
-- If deploying to Fly.io: set `ANTHROPIC_API_KEY` as a Fly secret (`fly secrets set`), not in the image; DB must be on a persistent volume, not baked into the image
+**1.3 — Secrets hygiene audit** ✅ COMPLETE
+- `.env` in `.gitignore` ✓ (line 3)
+- `data/*.db` in `.gitignore` ✓ (line 11 — covers e2caf.db, meridant.db, meridant_frameworks.db)
+- `auth_config.yaml` in `.gitignore` ✓ (line 13)
+- `.env.example` committed to repo — documents all current vars: `MERIDANT_FRAMEWORKS_DB_PATH`, `MERIDANT_ASSESSMENTS_DB_PATH`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `REQUEST_TIMEOUT_SECONDS`; includes legacy `TMM_DB_PATH` as a commented fallback; includes Fly.io deployment notes
 
 ---
 

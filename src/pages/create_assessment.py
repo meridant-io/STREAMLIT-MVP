@@ -320,10 +320,14 @@ def render():
                 def _fmt_assessment(r):
                     status_label = "Complete" if r["status"] == "complete" else "In Progress"
                     date = (r.get("created_at") or "")[:10]
+                    consultant = r.get("consultant_name", "") or ""
                     label = f"{r['client_name']} — {r['use_case_name']}"
                     if r.get("engagement_name"):
                         label = f"{r['client_name']} · {r['engagement_name']} — {r['use_case_name']}"
-                    return f"{label}  ({status_label}, {date})"
+                    suffix = f"{status_label}, {date}"
+                    if consultant:
+                        suffix = f"{status_label}, {date}, {consultant}"
+                    return f"{label}  ({suffix})"
 
                 options_map = {_fmt_assessment(r): r["id"] for r in assessment_rows}
                 selected_label = st.selectbox("Saved assessments", list(options_map.keys()))

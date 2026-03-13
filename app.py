@@ -14,7 +14,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("anthropic").setLevel(logging.WARNING)
 logging.getLogger("watchdog").setLevel(logging.WARNING)
 
-from src.pages import create_assessment, dashboard, architecture
+from src.pages import create_assessment, dashboard, architecture, admin_users
 
 st.set_page_config(page_title="Meridant Matrix", layout="wide")
 
@@ -87,9 +87,14 @@ with st.sidebar:
   </div>
 </div>
 """, unsafe_allow_html=True)
+    _admins = _auth_config.get("admins", [])
+    _is_admin = st.session_state.get("username", "") in _admins
+    _nav_pages = ["Dashboard", "Create Assessment", "Architecture"]
+    if _is_admin:
+        _nav_pages.append("Admin")
     page = st.radio(
         "Navigate",
-        ["Dashboard", "Create Assessment", "Architecture"],
+        _nav_pages,
         label_visibility="collapsed",
     )
     st.markdown("<div style='flex:1'></div>", unsafe_allow_html=True)
@@ -116,3 +121,5 @@ elif page == "Create Assessment":
     create_assessment.render()
 elif page == "Architecture":
     architecture.render()
+elif page == "Admin":
+    admin_users.render()
