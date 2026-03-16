@@ -11,24 +11,28 @@ import json
 import streamlit as st
 import streamlit.components.v1 as components
 from src.meridant_client import get_client
-from src.sql_templates import q_list_next_usecases
+from src.sql_templates import q_list_next_usecases, get_frameworks, get_framework_labels
 
 
 # ── cached loaders ────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60)
-def load_domain_stats(_client):
-    r = _client.query("""
+def load_domain_stats(_client, framework_id: int = 1):
+    r = _client.query(
+        """
         SELECT d.id, d.domain_name,
             COUNT(DISTINCT sd.id)  AS subdomains,
             COUNT(DISTINCT c.id)   AS capabilities,
             COUNT(DISTINCT ci.id)  AS dependencies
         FROM Next_Domain d
-        LEFT JOIN Next_SubDomain              sd ON sd.domain_id          = d.id
-        LEFT JOIN Next_Capability             c  ON c.domain_id           = d.id
+        LEFT JOIN Next_SubDomain sd ON sd.domain_id = d.id AND sd.framework_id = ?
+        LEFT JOIN Next_Capability c  ON c.domain_id  = d.id AND c.framework_id  = ?
         LEFT JOIN Next_CapabilityInterdependency ci ON ci.source_capability_id = c.id
+        WHERE d.framework_id = ?
         GROUP BY d.id, d.domain_name ORDER BY d.id
-    """)
+        """,
+        [framework_id, framework_id, framework_id]
+    )
     return r.get("rows", [])
 
 
@@ -44,74 +48,93 @@ def load_dep_mix(_client):
 
 
 @st.cache_data(ttl=60)
-def load_top_subdomains(_client):
-    r = _client.query("""
+def load_top_subdomains(_client, framework_id: int = 1):
+    r = _client.query(
+        """
         SELECT d.domain_name, sd.subdomain_name, COUNT(c.id) AS capabilities
         FROM Next_SubDomain sd
-        JOIN Next_Domain d ON d.id = sd.domain_id
-        LEFT JOIN Next_Capability c ON c.subdomain_id = sd.id
+        JOIN Next_Domain d ON d.id = sd.domain_id AND d.framework_id = ?
+        LEFT JOIN Next_Capability c ON c.subdomain_id = sd.id AND c.framework_id = ?
+        WHERE sd.framework_id = ?
         GROUP BY d.domain_name, sd.subdomain_name
         ORDER BY capabilities DESC LIMIT 15
-    """)
+        """,
+        [framework_id, framework_id, framework_id]
+    )
     return r.get("rows", [])
 
 
 @st.cache_data(ttl=60)
-def load_anchors(_client):
-    r = _client.query("""
+def load_anchors(_client, framework_id: int = 1):
+    r = _client.query(
+        """
         SELECT c.capability_name, d.domain_name, COUNT(i.id) AS outbound_links
         FROM Next_Capability c
-        JOIN Next_Domain d ON c.domain_id = d.id
+        JOIN Next_Domain d ON c.domain_id = d.id AND d.framework_id = ?
         JOIN Next_CapabilityInterdependency i
               ON i.source_capability_id = c.id AND i.interaction_type_id = 1
+        WHERE c.framework_id = ?
         GROUP BY c.id, c.capability_name, d.domain_name
         ORDER BY outbound_links DESC LIMIT 8
-    """)
+        """,
+        [framework_id, framework_id]
+    )
     return r.get("rows", [])
 
 
 @st.cache_data(ttl=60)
-def load_subdomains(_client):
-    r = _client.query("""
+def load_subdomains(_client, framework_id: int = 1):
+    r = _client.query(
+        """
         SELECT sd.id, sd.domain_id, sd.subdomain_name, COUNT(c.id) AS cap_count
         FROM Next_SubDomain sd
-        LEFT JOIN Next_Capability c ON c.subdomain_id = sd.id
+        LEFT JOIN Next_Capability c ON c.subdomain_id = sd.id AND c.framework_id = ?
+        WHERE sd.framework_id = ?
         GROUP BY sd.id, sd.domain_id, sd.subdomain_name
         ORDER BY sd.domain_id, sd.id
-    """)
+        """,
+        [framework_id, framework_id]
+    )
     return r.get("rows", [])
 
 
 @st.cache_data(ttl=60)
-def load_capabilities_with_maturity(_client):
-    r = _client.query("""
+def load_capabilities_with_maturity(_client, framework_id: int = 1):
+    r = _client.query(
+        """
         SELECT
             c.id, c.capability_name, c.capability_description,
             c.domain_id, c.subdomain_id, c.owner_role,
             AVG(ma.maturity_score) AS avg_maturity
         FROM Next_Capability c
         LEFT JOIN Next_MaturityAssessment ma ON ma.capability_id = c.id
+        WHERE c.framework_id = ?
         GROUP BY c.id, c.capability_name, c.capability_description,
                  c.domain_id, c.subdomain_id, c.owner_role
         ORDER BY c.domain_id, c.subdomain_id, c.id
-    """)
+        """,
+        [framework_id]
+    )
     return r.get("rows", [])
 
 
 @st.cache_data(ttl=60)
-def load_capability_levels(_client):
-    r = _client.query("""
+def load_capability_levels(_client, framework_id: int = 1):
+    r = _client.query(
+        """
         SELECT capability_id, level, level_name, capability_state, key_indicators
         FROM Next_CapabilityLevel
-        WHERE level_name IS NOT NULL
+        WHERE framework_id = ? AND level_name IS NOT NULL
         ORDER BY capability_id, level
-    """)
+        """,
+        [framework_id]
+    )
     return r.get("rows", [])
 
 
 @st.cache_data(ttl=60)
-def load_use_cases(_client):
-    r = _client.query(q_list_next_usecases())
+def load_use_cases(_client, framework_id: int = 1):
+    r = _client.query(q_list_next_usecases(framework_id=framework_id))
     return r.get("rows", [])
 
 
@@ -120,14 +143,28 @@ def load_use_cases(_client):
 def render() -> None:
     client = get_client()
 
-    domains      = load_domain_stats(client)
+    framework_id = st.session_state.get("framework_id", 1)
+    labels       = st.session_state.get(
+        "framework_labels",
+        {"level1": "Pillar", "level2": "Domain", "level3": "Capability"}
+    )
+
+    # ── Framework context indicator ──────────────────────────────────────────
+    _fw_list = get_frameworks(client)
+    _fw_name = next((f["framework_name"] for f in _fw_list if f["id"] == framework_id), "MMTF")
+    st.caption(
+        f"Framework: **{_fw_name}** &nbsp;·&nbsp; "
+        f"{labels['level1']} / {labels['level2']} / {labels['level3']}"
+    )
+
+    domains      = load_domain_stats(client, framework_id)
     dep_mix      = load_dep_mix(client)
-    top_sds      = load_top_subdomains(client)
-    anchors      = load_anchors(client)
-    subdomains   = load_subdomains(client)
-    capabilities = load_capabilities_with_maturity(client)
-    cap_levels   = load_capability_levels(client)
-    use_cases    = load_use_cases(client)
+    top_sds      = load_top_subdomains(client, framework_id)
+    anchors      = load_anchors(client, framework_id)
+    subdomains   = load_subdomains(client, framework_id)
+    capabilities = load_capabilities_with_maturity(client, framework_id)
+    cap_levels   = load_capability_levels(client, framework_id)
+    use_cases    = load_use_cases(client, framework_id)
 
     total_caps = sum(d["capabilities"] for d in domains)
     total_sds  = sum(d["subdomains"]   for d in domains)

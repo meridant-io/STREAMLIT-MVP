@@ -132,7 +132,7 @@ def save_assessment_shell(client: MeridantClient, session: dict) -> int:
             UPDATE Assessment
             SET client_id = ?, engagement_name = ?, use_case_name = ?,
                 intent_text = ?, usecase_id = ?, assessment_mode = ?,
-                consultant_name = ?
+                consultant_name = ?, framework_id = ?
             WHERE id = ?
             """,
             [
@@ -143,6 +143,7 @@ def save_assessment_shell(client: MeridantClient, session: dict) -> int:
                 session.get("selected_usecase_id"),
                 session.get("assessment_mode", "custom"),
                 session.get("authenticated_username", ""),
+                session.get("framework_id", 1),
                 existing_id,
             ],
         )
@@ -152,8 +153,8 @@ def save_assessment_shell(client: MeridantClient, session: dict) -> int:
         """
         INSERT INTO Assessment
             (client_id, engagement_name, use_case_name, intent_text,
-             usecase_id, assessment_mode, consultant_name, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'in_progress', ?)
+             usecase_id, assessment_mode, consultant_name, framework_id, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?)
         """,
         [
             client_id,
@@ -163,6 +164,7 @@ def save_assessment_shell(client: MeridantClient, session: dict) -> int:
             session.get("selected_usecase_id"),
             session.get("assessment_mode", "custom"),
             session.get("authenticated_username", ""),
+            session.get("framework_id", 1),
             datetime.now().isoformat(),
         ],
     )
@@ -264,8 +266,8 @@ def save_assessment(client: MeridantClient, session: dict) -> int:
         """
         INSERT INTO Assessment
             (client_id, engagement_name, use_case_name, intent_text,
-             usecase_id, assessment_mode, consultant_name, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'in_progress', ?)
+             usecase_id, assessment_mode, consultant_name, framework_id, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?)
         """,
         [
             client_id,
@@ -275,6 +277,7 @@ def save_assessment(client: MeridantClient, session: dict) -> int:
             session.get("selected_usecase_id"),
             session.get("assessment_mode", "custom"),
             session.get("authenticated_username", ""),
+            session.get("framework_id", 1),
             datetime.now().isoformat(),
         ],
     )

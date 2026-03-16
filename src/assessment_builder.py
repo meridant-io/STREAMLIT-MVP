@@ -131,9 +131,10 @@ def analyze_use_case_readonly(
     client,
     intent_text: str,
     core_k: int = 10,
+    framework_id: int = 1,
 ) -> tuple:
     """
-    Reads TMM capabilities, uses AI to rank by intent,
+    Reads capabilities for the given framework, uses AI to rank by intent,
     expands upstream/downstream via dependency graph.
     Returns: candidates, core, upstream, downstream, domains_covered, cap_count
     """
@@ -141,8 +142,9 @@ def analyze_use_case_readonly(
     from dotenv import load_dotenv
     load_dotenv()
 
-    # ── 1. Load full capability library from TMM ──
-    res = client.query("""
+    # ── 1. Load capability library for this framework ──
+    res = client.query(
+        """
         SELECT
             nc.id            AS capability_id,
             nc.capability_name,
@@ -151,8 +153,11 @@ def analyze_use_case_readonly(
         FROM Next_Capability nc
         JOIN Next_Domain nd ON nc.domain_id = nd.id
         JOIN Next_SubDomain ns ON nc.subdomain_id = ns.id
+        WHERE nc.framework_id = ?
         ORDER BY nd.domain_name, ns.subdomain_name, nc.capability_name
-    """)
+        """,
+        [int(framework_id)]
+    )
     rows = res.get("rows", [])
     cap_count = len(rows)
 
@@ -209,6 +214,7 @@ def analyze_use_case_readonly(
             JOIN Next_SubDomain ns ON nc.subdomain_id = ns.id
             WHERE dep.target_capability_id IN ({id_list})
               AND dep.source_capability_id NOT IN ({id_list})
+              AND nc.framework_id = {int(framework_id)}
             """
         )
         upstream = [
@@ -239,6 +245,7 @@ def analyze_use_case_readonly(
             JOIN Next_SubDomain ns ON nc.subdomain_id = ns.id
             WHERE dep.source_capability_id IN ({id_list})
               AND dep.target_capability_id NOT IN ({id_list})
+              AND nc.framework_id = {int(framework_id)}
             """
         )
         downstream = [

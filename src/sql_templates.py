@@ -1,10 +1,112 @@
 from __future__ import annotations
 
 # -----------------------------
+# Framework helpers (multi-framework support)
+# -----------------------------
+
+def get_frameworks(client) -> list:
+    """Return all active frameworks for the framework selector."""
+    result = client.query(
+        "SELECT id, framework_key, framework_name, label_level1, label_level2, label_level3 "
+        "FROM Next_Framework WHERE status = 'active' ORDER BY id",
+        []
+    )
+    return result.get("rows", [])
+
+
+def get_framework_labels(client, framework_id: int) -> dict:
+    """Return display labels for a given framework_id.
+    Returns dict with keys level1/level2/level3.
+    Falls back to MMTF labels if not found.
+    """
+    result = client.query(
+        "SELECT label_level1, label_level2, label_level3 FROM Next_Framework WHERE id = ?",
+        [int(framework_id)]
+    )
+    rows = result.get("rows", [])
+    if rows:
+        return {
+            "level1": rows[0]["label_level1"],
+            "level2": rows[0]["label_level2"],
+            "level3": rows[0]["label_level3"],
+        }
+    return {"level1": "Pillar", "level2": "Domain", "level3": "Capability"}
+
+
+def get_domains_for_framework(client, framework_id: int) -> list:
+    """Return all Pillars/Functions for a given framework."""
+    result = client.query(
+        "SELECT id, domain_name FROM Next_Domain WHERE framework_id = ? ORDER BY id",
+        [int(framework_id)]
+    )
+    return result.get("rows", [])
+
+
+def get_subdomains_for_framework(client, framework_id: int, domain_id: int = None) -> list:
+    """Return Domains/Categories for a framework, optionally filtered by Pillar."""
+    if domain_id:
+        result = client.query(
+            "SELECT id, domain_id, subdomain_name FROM Next_SubDomain "
+            "WHERE framework_id = ? AND domain_id = ? ORDER BY id",
+            [int(framework_id), int(domain_id)]
+        )
+    else:
+        result = client.query(
+            "SELECT id, domain_id, subdomain_name FROM Next_SubDomain "
+            "WHERE framework_id = ? ORDER BY id",
+            [int(framework_id)]
+        )
+    return result.get("rows", [])
+
+
+def get_capabilities_for_framework(client, framework_id: int, subdomain_id: int = None) -> list:
+    """Return Capabilities/Subcategories for a framework, optionally filtered by Domain."""
+    if subdomain_id:
+        result = client.query(
+            "SELECT id, domain_id, subdomain_id, capability_name, capability_description "
+            "FROM Next_Capability WHERE framework_id = ? AND subdomain_id = ? ORDER BY id",
+            [int(framework_id), int(subdomain_id)]
+        )
+    else:
+        result = client.query(
+            "SELECT id, domain_id, subdomain_id, capability_name, capability_description "
+            "FROM Next_Capability WHERE framework_id = ? ORDER BY id",
+            [int(framework_id)]
+        )
+    return result.get("rows", [])
+
+
+def get_use_cases_for_framework(client, framework_id: int) -> list:
+    """Return use cases for a given framework."""
+    result = client.query(
+        "SELECT id, usecase_title, "
+        "COALESCE(usecase_description, '') AS usecase_description, "
+        "COALESCE(business_value, '') AS business_value, "
+        "COALESCE(owner_role, '') AS owner_role "
+        "FROM Next_UseCase WHERE framework_id = ? ORDER BY usecase_title",
+        [int(framework_id)]
+    )
+    return result.get("rows", [])
+
+
+def get_capability_levels_for_framework(client, capability_id: int, framework_id: int) -> list:
+    """Return L1–L5 descriptors for a capability, filtered by framework."""
+    result = client.query(
+        "SELECT level, level_name, capability_state, key_indicators, scoring_criteria "
+        "FROM Next_CapabilityLevel "
+        "WHERE capability_id = ? AND framework_id = ? AND level_name IS NOT NULL "
+        "ORDER BY level",
+        [int(capability_id), int(framework_id)]
+    )
+    return result.get("rows", [])
+
+
+# -----------------------------
 # Reference data
 # -----------------------------
-def q_list_next_usecases(limit: int = 200) -> str:
-    return f"SELECT id, usecase_title FROM Next_UseCase ORDER BY id LIMIT {int(limit)};"
+def q_list_next_usecases(limit: int = 200, framework_id: int = None) -> str:
+    fw_filter = f"WHERE framework_id = {int(framework_id)}" if framework_id else ""
+    return f"SELECT id, usecase_title FROM Next_UseCase {fw_filter} ORDER BY id LIMIT {int(limit)};"
 
 def q_list_tags() -> str:
     return "SELECT id, tag_name, tag_description FROM Next_CapabilityTag ORDER BY tag_name;"

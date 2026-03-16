@@ -9,7 +9,12 @@ from src.assessment_store import (
     save_findings, save_narrative, list_assessments, load_assessment,
 )
 from src.question_generator import generate_questions_for_capability
-from src.sql_templates import q_list_next_usecases
+from src.sql_templates import (
+    q_list_next_usecases,
+    get_frameworks,
+    get_framework_labels,
+    get_use_cases_for_framework,
+)
 from collections import defaultdict
 
 
@@ -50,16 +55,17 @@ Return ONLY the rewritten intent text — no preamble, no quotes, no explanation
 # Helpers for predefined use case loading
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _load_predefined_usecases(client) -> list[dict]:
-    """Return [{id, usecase_title, usecase_description, business_value}] from Next_UseCase."""
-    res = client.query("""
-        SELECT id, usecase_title,
-               COALESCE(usecase_description, '') AS usecase_description,
-               COALESCE(business_value, '')       AS business_value,
-               COALESCE(owner_role, '')            AS owner_role
-        FROM Next_UseCase
-        ORDER BY usecase_title
-    """)
+def _load_predefined_usecases(client, framework_id: int = 1) -> list[dict]:
+    """Return [{id, usecase_title, usecase_description, business_value}] from Next_UseCase,
+    filtered to the given framework."""
+    res = client.query(
+        "SELECT id, usecase_title, "
+        "COALESCE(usecase_description, '') AS usecase_description, "
+        "COALESCE(business_value, '') AS business_value, "
+        "COALESCE(owner_role, '') AS owner_role "
+        "FROM Next_UseCase WHERE framework_id = ? ORDER BY usecase_title",
+        [int(framework_id)]
+    )
     return res.get("rows", [])
 
 
@@ -118,6 +124,7 @@ def _load_predefined_capabilities(client, usecase_id: int):
             downstream.append(cap)
 
     # Expand upstream via interdependencies (same logic as analyze_use_case_readonly)
+    fw_id = usecase_id  # framework_id sourced from caller via session; passed through below
     all_ids = {c.capability_id for c in core + upstream + downstream}
     if all_ids:
         id_list = ",".join(str(i) for i in all_ids)
@@ -130,6 +137,9 @@ def _load_predefined_capabilities(client, usecase_id: int):
             JOIN Next_SubDomain  ns ON nc.subdomain_id = ns.id
             WHERE dep.target_capability_id IN ({id_list})
               AND dep.source_capability_id  NOT IN ({id_list})
+              AND nc.framework_id = (
+                  SELECT framework_id FROM Next_UseCase WHERE id = {int(usecase_id)} LIMIT 1
+              )
         """)
         for r in res_up.get("rows", []):
             cap = CapabilityResult(
@@ -171,6 +181,12 @@ def _hydrate_session_from_db(data: dict) -> None:
     st.session_state.intent_text         = a.get("intent_text", "")
     st.session_state.assessment_mode     = a.get("assessment_mode", "custom") or "custom"
     st.session_state.selected_usecase_id = a.get("usecase_id")
+
+    # Framework context — restore labels so all wizard steps use the correct terminology
+    _fw_id = a.get("framework_id", 1) or 1
+    st.session_state.framework_id = _fw_id
+    _fw_client = get_client()
+    st.session_state.framework_labels = get_framework_labels(_fw_client, _fw_id)
 
     # Capabilities split by role (mapped to CapabilityResult dict shape)
     def _cap_to_dict(c):
@@ -320,6 +336,8 @@ def render():
     st.session_state.setdefault("recommendations", None)
     st.session_state.setdefault("confirm_regen_narrative", False)
     st.session_state.setdefault("confirm_regen_recs", False)
+    st.session_state.setdefault("framework_id", 1)
+    st.session_state.setdefault("framework_labels", {"level1": "Pillar", "level2": "Domain", "level3": "Capability"})
 
     # -------------------------
     # STEP 1
@@ -384,11 +402,40 @@ def render():
 
         st.divider()
 
+        # ── FRAMEWORK SELECTOR — drives taxonomy labels and use case list ────
+        _fw_db = get_client()
+        _frameworks = get_frameworks(_fw_db)
+        if _frameworks:
+            _fw_options = {f["id"]: f["framework_name"] for f in _frameworks}
+            _fw_keys = list(_fw_options.keys())
+            _fw_current = st.session_state.get("framework_id", 1)
+            _fw_idx = _fw_keys.index(_fw_current) if _fw_current in _fw_keys else 0
+            selected_framework_id = st.selectbox(
+                "Assessment framework",
+                options=_fw_keys,
+                format_func=lambda x: _fw_options[x],
+                index=_fw_idx,
+                key="framework_selector",
+            )
+            if selected_framework_id != st.session_state.get("framework_id"):
+                st.session_state["framework_id"] = selected_framework_id
+                st.session_state["framework_labels"] = get_framework_labels(_fw_db, selected_framework_id)
+                st.rerun()
+            _fw_labels = st.session_state["framework_labels"]
+            st.caption(
+                f"Assessing against: **{_fw_labels['level1']}s** → "
+                f"**{_fw_labels['level2']}s** → **{_fw_labels['level3']}s**"
+            )
+        else:
+            selected_framework_id = st.session_state.get("framework_id", 1)
+
+        st.divider()
+
         # ── PREDEFINED: use case selector lives OUTSIDE the form so changes
         #    trigger immediate reruns and intent text refreshes live ──────────
         if mode == "predefined":
             db = get_client()
-            uc_rows = _load_predefined_usecases(db)
+            uc_rows = _load_predefined_usecases(db, st.session_state.get("framework_id", 1))
 
             if not uc_rows:
                 st.warning("No predefined use cases found in the framework.")
@@ -657,6 +704,7 @@ def render():
                 client=client,
                 intent_text=st.session_state.intent_text,
                 core_k=core_k,
+                framework_id=st.session_state.get("framework_id", 1),
             )
             st.caption(f"Capability library size (from TMM): {cap_count}")
 
