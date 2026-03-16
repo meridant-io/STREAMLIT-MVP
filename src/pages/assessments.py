@@ -2,18 +2,31 @@
 
 from __future__ import annotations
 
-import json
+import math
 
 import streamlit as st
 
 from src.meridant_client import get_client
 from src.assessment_store import list_assessments, load_assessment
 
+PAGE_SIZE = 15
+
+_FW_LABELS = {1: "E2CAF", 2: "NIST CSF 2.0"}
+
+# Column proportions — must match between header and data rows
+_COL_W = [0.4, 1.7, 1.7, 2.3, 1.1, 1.1, 0.65, 0.9, 1.1]
+_COL_HEADERS = ["ID", "Client", "Engagement", "Use Case", "Framework", "Status", "Score", "Created", ""]
+
+_HDR_STYLE = (
+    "margin:0;padding:2px 0 6px;font-size:.7rem;font-weight:700;"
+    "color:#6B7280;text-transform:uppercase;letter-spacing:.07em"
+)
+
 
 def _hydrate_and_redirect(assessment_id: int) -> None:
-    """Load an assessment from DB, hydrate session state, and redirect to the wizard."""
-    # Import here to avoid circular import
+    """Load assessment from DB, populate session state, navigate to wizard."""
     from src.pages.create_assessment import _hydrate_session_from_db
+    from src.assessment_store import load_recommendations
 
     db = get_client()
     data = load_assessment(db, assessment_id)
@@ -21,105 +34,156 @@ def _hydrate_and_redirect(assessment_id: int) -> None:
         st.error(f"Assessment {assessment_id} not found.")
         return
 
-    # Reset wizard state before hydrating
+    # Clear stale wizard state before hydrating
     for key in [
         "wizard_step", "core_caps", "upstream_caps", "downstream_caps",
         "questions", "responses", "findings_saved", "findings_narrative",
         "roadmap_data", "recommendations", "domain_targets", "domains_covered",
         "responses_ai_scored", "confirm_regen_narrative", "confirm_regen_recs",
+        "show_new_form",
     ]:
         st.session_state.pop(key, None)
 
     _hydrate_session_from_db(data)
 
-    # Load recommendations if they exist (Step 5b)
-    from src.assessment_store import load_recommendations
     recs = load_recommendations(db, assessment_id)
     st.session_state.recommendations = recs if recs else None
 
-    st.session_state._navigate_to = "Create Assessment"
+    st.session_state["_navigate_to"] = "Create Assessment"
     st.rerun()
+
+
+def _header() -> None:
+    cols = st.columns(_COL_W)
+    for col, label in zip(cols, _COL_HEADERS):
+        col.markdown(f'<p style="{_HDR_STYLE}">{label}</p>', unsafe_allow_html=True)
+    st.markdown('<hr style="margin:0 0 4px;border-color:#E5E7EB;border-width:2px 0 0">', unsafe_allow_html=True)
+
+
+def _row(r: dict) -> None:
+    aid       = r["id"]
+    status    = r.get("status", "in_progress")
+    score     = r.get("overall_score")
+    created   = (r.get("created_at") or "")[:10]
+    client    = r.get("client_name") or "—"
+    engage    = r.get("engagement_name") or "—"
+    usecase   = r.get("use_case_name") or "—"
+    fw_id     = r.get("framework_id") or 1
+    fw        = _FW_LABELS.get(fw_id, "E2CAF")
+    score_txt = f"{score:.1f}" if score is not None else "—"
+
+    if status == "complete":
+        badge = (
+            '<span style="background:#0D9488;color:#fff;padding:2px 9px;'
+            'border-radius:999px;font-size:.7rem;font-weight:600;white-space:nowrap">'
+            'Complete</span>'
+        )
+        btn_label = "Open →"
+        btn_type  = "secondary"
+    else:
+        badge = (
+            '<span style="background:#2563EB;color:#fff;padding:2px 9px;'
+            'border-radius:999px;font-size:.7rem;font-weight:600;white-space:nowrap">'
+            'In Progress</span>'
+        )
+        btn_label = "Resume →"
+        btn_type  = "primary"
+
+    cols = st.columns(_COL_W)
+    cols[0].markdown(f'<span style="font-size:.8rem;color:#9CA3AF">{aid}</span>', unsafe_allow_html=True)
+    cols[1].markdown(f'<span style="font-size:.85rem;font-weight:600">{client}</span>', unsafe_allow_html=True)
+    cols[2].markdown(f'<span style="font-size:.8rem;color:#6B7280">{engage}</span>', unsafe_allow_html=True)
+    cols[3].markdown(f'<span style="font-size:.8rem">{usecase}</span>', unsafe_allow_html=True)
+    cols[4].markdown(f'<span style="font-size:.78rem;color:#6B7280">{fw}</span>', unsafe_allow_html=True)
+    cols[5].markdown(badge, unsafe_allow_html=True)
+    cols[6].markdown(f'<span style="font-size:.8rem">{score_txt}</span>', unsafe_allow_html=True)
+    cols[7].markdown(f'<span style="font-size:.78rem;color:#9CA3AF">{created}</span>', unsafe_allow_html=True)
+    with cols[8]:
+        if st.button(btn_label, key=f"open_{aid}", type=btn_type, use_container_width=True):
+            _hydrate_and_redirect(aid)
 
 
 def render() -> None:
     st.title("Assessments")
 
-    db = get_client()
+    db   = get_client()
     rows = list_assessments(db)
 
     if not rows:
         st.info("No assessments yet. Go to **Create Assessment** to start one.")
         return
 
-    # ── Filters ──────────────────────────────────────────────────────────────
-    col_f1, col_f2 = st.columns([2, 3])
-    with col_f1:
-        status_filter = st.selectbox(
-            "Status",
-            ["All", "In Progress", "Complete"],
-            label_visibility="collapsed",
-        )
-    with col_f2:
+    # ── Filters ───────────────────────────────────────────────────────────────
+    fc1, fc2, fc3 = st.columns([1.4, 1.4, 3])
+
+    all_fw = sorted({_FW_LABELS.get(r.get("framework_id") or 1, "E2CAF") for r in rows})
+    with fc1:
+        fw_filter = st.selectbox("Framework", ["All"] + all_fw, key="af_fw")
+    with fc2:
+        status_filter = st.selectbox("Status", ["All", "In Progress", "Complete"], key="af_st")
+    with fc3:
         search = st.text_input(
-            "Search client",
-            placeholder="Filter by client name…",
-            label_visibility="collapsed",
+            "Search", placeholder="Filter by client or engagement…", key="af_sq"
         )
 
     # Apply filters
     filtered = rows
+    if fw_filter != "All":
+        filtered = [r for r in filtered
+                    if _FW_LABELS.get(r.get("framework_id") or 1, "E2CAF") == fw_filter]
     if status_filter == "In Progress":
         filtered = [r for r in filtered if r.get("status") == "in_progress"]
     elif status_filter == "Complete":
         filtered = [r for r in filtered if r.get("status") == "complete"]
     if search.strip():
         term = search.strip().lower()
-        filtered = [r for r in filtered if term in (r.get("client_name") or "").lower()]
+        filtered = [r for r in filtered if
+                    term in (r.get("client_name") or "").lower() or
+                    term in (r.get("engagement_name") or "").lower()]
 
-    if not filtered:
-        st.info("No assessments match the current filter.")
+    total = len(filtered)
+    if total == 0:
+        st.info("No assessments match the current filters.")
         return
 
-    st.caption(f"Showing {len(filtered)} of {len(rows)} assessments")
+    # ── Pagination ─────────────────────────────────────────────────────────────
+    total_pages = max(1, math.ceil(total / PAGE_SIZE))
+    st.session_state.setdefault("assessments_page", 1)
+    page = max(1, min(st.session_state["assessments_page"], total_pages))
 
-    # ── Table header ─────────────────────────────────────────────────────────
-    hdr = st.columns([0.6, 2, 2, 2, 1.4, 1.4, 1, 1.2, 1.4])
-    for col, label in zip(hdr, ["ID", "Client", "Engagement", "Use Case",
-                                  "Status", "Consultant", "Score",
-                                  "Created", "Action"]):
-        col.markdown(f"**{label}**")
+    page_rows = filtered[(page - 1) * PAGE_SIZE : page * PAGE_SIZE]
 
-    st.divider()
+    # Summary + nav row
+    ic, nc = st.columns([3, 2])
+    with ic:
+        start = (page - 1) * PAGE_SIZE + 1
+        end   = min(page * PAGE_SIZE, total)
+        st.caption(f"Showing {start}–{end} of {total} assessments")
+    with nc:
+        if total_pages > 1:
+            p1, p2, p3 = st.columns([1, 2, 1])
+            with p1:
+                if st.button("‹ Prev", disabled=(page == 1), key="pg_prev"):
+                    st.session_state.assessments_page = page - 1
+                    st.rerun()
+            with p2:
+                st.markdown(
+                    f"<div style='text-align:center;padding-top:6px;font-size:.8rem;"
+                    f"color:#9CA3AF'>Page {page} of {total_pages}</div>",
+                    unsafe_allow_html=True,
+                )
+            with p3:
+                if st.button("Next ›", disabled=(page == total_pages), key="pg_next"):
+                    st.session_state.assessments_page = page + 1
+                    st.rerun()
 
-    # ── Rows ─────────────────────────────────────────────────────────────────
-    for r in filtered:
-        aid      = r["id"]
-        status   = r.get("status", "in_progress")
-        score    = r.get("overall_score")
-        created  = (r.get("created_at") or "")[:10]
+    # ── Table ──────────────────────────────────────────────────────────────────
+    _header()
+    for idx, r in enumerate(page_rows):
+        _row(r)
+        if idx < len(page_rows) - 1:
+            st.markdown(
+                '<hr style="margin:3px 0;border-color:#F3F4F6;border-width:1px 0 0">',
+                unsafe_allow_html=True,
+            )
 
-        # Status badge
-        if status == "complete":
-            badge = "🟢 Complete"
-        else:
-            badge = "🔵 In Progress"
-
-        score_str = f"{score:.1f}" if score is not None else "—"
-
-        cols = st.columns([0.6, 2, 2, 2, 1.4, 1.4, 1, 1.2, 1.4])
-        cols[0].markdown(f"`{aid}`")
-        cols[1].markdown(r.get("client_name") or "—")
-        cols[2].markdown(r.get("engagement_name") or "—")
-        cols[3].markdown(r.get("use_case_name") or "—")
-        cols[4].markdown(badge)
-        cols[5].markdown(r.get("consultant_name") or "—")
-        cols[6].markdown(score_str)
-        cols[7].markdown(created)
-
-        with cols[8]:
-            if status == "in_progress":
-                if st.button("Resume →", key=f"resume_{aid}", type="primary"):
-                    _hydrate_and_redirect(aid)
-            else:
-                if st.button("View →", key=f"view_{aid}"):
-                    _hydrate_and_redirect(aid)

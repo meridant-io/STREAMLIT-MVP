@@ -477,9 +477,11 @@ def list_assessments(client: MeridantClient) -> list[dict]:
     res = client.query("""
         SELECT a.id, c.client_name, a.engagement_name, a.use_case_name,
                a.status, a.created_at, a.overall_score,
-               COALESCE(a.consultant_name, '') AS consultant_name
+               COALESCE(a.consultant_name, '') AS consultant_name,
+               COALESCE(nu.framework_id, 1) AS framework_id
         FROM Assessment a
         LEFT JOIN Client c ON a.client_id = c.id
+        LEFT JOIN Next_UseCase nu ON a.usecase_id = nu.id
         ORDER BY a.created_at DESC
     """)
     return res.get("rows", [])
