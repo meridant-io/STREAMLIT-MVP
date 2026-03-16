@@ -9,5 +9,7 @@ start.bat
 start.ps1
 TMM_Assessment_Platform_Demo_Guide.md
 data/*.db
-# CLAUDE.md
+data/*.db-shm
+data/*.db-wal
+CLAUDE.md
 auth_config.yaml
