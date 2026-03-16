@@ -327,7 +327,6 @@ def render():
     st.session_state.setdefault("domain_targets", {})
     st.session_state.setdefault("assessment_id", None)
     st.session_state.setdefault("findings_saved", False)
-    st.session_state.setdefault("show_new_form", False)
     st.session_state.setdefault("roadmap_data", None)
     st.session_state.setdefault("roadmap_timeline_unit", "Sprints (2 wks)")
     st.session_state.setdefault("roadmap_horizon_months", 6)
@@ -344,51 +343,6 @@ def render():
     # -------------------------
     if st.session_state.wizard_step == 1:
         st.subheader("Step 1 — Client & Use Case")
-
-        if not st.session_state.get("show_new_form", False):
-            # ── LOAD EXISTING ASSESSMENT ──────────────────────────────────────
-            st.markdown(
-                "Select a previously saved assessment to resume or review it, "
-                "or start a new one below."
-            )
-            _db = get_client()
-            assessment_rows = list_assessments(_db)
-            if assessment_rows:
-                def _fmt_assessment(r):
-                    status_label = "Complete" if r["status"] == "complete" else "In Progress"
-                    date = (r.get("created_at") or "")[:10]
-                    consultant = r.get("consultant_name", "") or ""
-                    label = f"{r['client_name']} — {r['use_case_name']}"
-                    if r.get("engagement_name"):
-                        label = f"{r['client_name']} · {r['engagement_name']} — {r['use_case_name']}"
-                    suffix = f"{status_label}, {date}"
-                    if consultant:
-                        suffix = f"{status_label}, {date}, {consultant}"
-                    return f"{label}  ({suffix})"
-
-                options_map = {_fmt_assessment(r): r["id"] for r in assessment_rows}
-                selected_label = st.selectbox("Saved assessments", list(options_map.keys()))
-                if st.button("Load Assessment", type="primary"):
-                    with st.spinner("Loading assessment..."):
-                        data = load_assessment(_db, options_map[selected_label])
-                    if data:
-                        _hydrate_session_from_db(data)
-                        st.rerun()
-                    else:
-                        st.error("Could not load the selected assessment.")
-            else:
-                st.info("No saved assessments found.")
-
-            st.divider()
-            if st.button("＋ Start New Assessment"):
-                st.session_state.show_new_form = True
-                st.rerun()
-            st.stop()
-
-        # ── NEW ASSESSMENT FORM ───────────────────────────────────────────────
-        if st.button("← Back"):
-            st.session_state.show_new_form = False
-            st.rerun()
 
         st.markdown(
             "Enter the client details, name your use case, and describe the client intent. "
@@ -1449,7 +1403,7 @@ def render():
                           "core_caps", "upstream_caps", "downstream_caps", "domains_covered",
                           "questions", "responses", "findings_narrative", "domain_targets",
                           "assessment_id", "findings_saved",
-                          "assessment_mode", "selected_usecase_id", "show_new_form",
+                          "assessment_mode", "selected_usecase_id",
                           "roadmap_data", "responses_ai_scored", "recommendations",
                           "confirm_regen_narrative", "confirm_regen_recs"]:
                     if k in ["use_case_name", "intent_text", "client_name", "engagement_name",
@@ -1467,8 +1421,6 @@ def render():
                         st.session_state[k] = "predefined"
                     elif k in ("selected_usecase_id",):
                         st.session_state[k] = None
-                    elif k == "show_new_form":
-                        st.session_state[k] = False
                     else:
                         st.session_state[k] = []
                 st.session_state.wizard_step = 1
