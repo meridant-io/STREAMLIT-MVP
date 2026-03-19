@@ -78,11 +78,13 @@ pull_db() {
     return
   fi
 
-  # Backup existing file
+  # Backup existing file then remove it — fly ssh sftp shell's `get` refuses
+  # to overwrite an existing file, so we must delete before downloading.
   if [[ -f "$local_path" ]]; then
     local backup="${local_path}.bak"
     cp "$local_path" "$backup"
     warn "Backed up existing file to $backup"
+    rm -f "$local_path"
   fi
 
   printf "get %s/%s %s\nexit\n" "$FLY_DATA_DIR" "$remote_name" "$local_path" \
