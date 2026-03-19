@@ -1,6 +1,6 @@
 {
     "name": "My App",
-    "postCreateCommand": "sqlite3 data/meridant.db < seed.sql && sqlite3 data/meridant_frameworks.db < seed_frameworks.sql && echo \"$AUTH_CONFIG\" > auth_config.yaml",
+    "postCreateCommand": "sqlite3 data/meridant.db < seed.sql && sqlite3 data/meridant_frameworks.db < seed_frameworks.sql && echo \"$AUTH_CONFIG\" > auth_config.yaml && env | grep -E 'ANTHROPIC_API|MARIDIANT_FRAMEWORS|MARIDANT_ASSESSMENTS' > .env",
     "forwardPorts": [
         8501
     ],
