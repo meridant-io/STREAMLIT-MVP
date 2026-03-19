@@ -1,6 +1,5 @@
 #!/bin/bash
 set +e  # don't stop on errors
-
 wget https://www.sqlite.org/2025/sqlite-tools-linux-x64-3490100.zip
 unzip sqlite-tools-linux-x64-3490100.zip sqlite3
 sudo mv sqlite3 /usr/local/bin/sqlite3
