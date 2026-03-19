@@ -72,17 +72,41 @@ function Push-DB {
 
     if (-not (Test-Path $LocalPath)) { Fail "$Label not found at $LocalPath" }
 
+    # Resolve absolute path; SFTP put needs a real path, not relative
+    $absPath = (Resolve-Path $LocalPath).Path
     $sizeMB = "{0:N1} MB" -f ((Get-Item $LocalPath).Length / 1MB)
-    Info "Pushing ${Label}: $LocalPath ($sizeMB) -> $FLY_DATA_DIR/$RemoteName"
+    Info "Pushing ${Label}: $absPath ($sizeMB) -> $FLY_DATA_DIR/$RemoteName"
 
     if ($DryRun) {
-        Warn "[dry-run] Would upload $LocalPath to $FLY_DATA_DIR/$RemoteName"
+        Warn "[dry-run] Would upload $absPath to $FLY_DATA_DIR/$RemoteName"
         return
     }
 
-    "put $LocalPath $FLY_DATA_DIR/$RemoteName`nexit" | fly ssh sftp shell --app $APP
+    # Write SFTP batch commands to a temp file.
+    # PowerShell's | operator does NOT send raw bytes to interactive CLIs,
+    # so we use cmd.exe stdin redirect (<) which is reliable for fly ssh sftp shell.
+    $tmpFile = [System.IO.Path]::GetTempFileName()
+    try {
+        Set-Content -Path $tmpFile -Value "put `"$absPath`" $FLY_DATA_DIR/$RemoteName" -Encoding ASCII
+        Add-Content -Path $tmpFile -Value "exit" -Encoding ASCII
 
-    Success "$Label uploaded to $FLY_DATA_DIR/$RemoteName"
+        cmd /c "fly ssh sftp shell --app $APP < `"$tmpFile`""
+        if ($LASTEXITCODE -ne 0) {
+            Fail "SFTP upload failed for $Label (exit code $LASTEXITCODE)"
+        }
+    }
+    finally {
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+    }
+
+    # Verify the upload landed by checking remote file size
+    $remoteSize = fly ssh console --app $APP --command "wc -c < $FLY_DATA_DIR/$RemoteName" 2>$null
+    $localSize = (Get-Item $LocalPath).Length
+    if ($remoteSize -and [int]$remoteSize -eq $localSize) {
+        Success "$Label uploaded ($localSize bytes verified on remote)"
+    } else {
+        Success "$Label uploaded to $FLY_DATA_DIR/$RemoteName (remote: $remoteSize bytes, local: $localSize bytes)"
+    }
 }
 
 # ── Push framework DB ─────────────────────────────────────────────────────────
