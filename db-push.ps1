@@ -81,39 +81,17 @@ function Push-DB {
         return
     }
 
-    # ── Base64 chunked upload via fly ssh console ──────────────────────────────
-    # Avoids all SFTP/stdin-pipe issues on Windows. Encodes the file as base64,
-    # appends chunks to a remote staging file, then decodes it in one step.
-    $bytes      = [IO.File]::ReadAllBytes($absPath)
-    $b64        = [Convert]::ToBase64String($bytes)
-    $chunkSize  = 30000
-    $totalChunks = [Math]::Ceiling($b64.Length / $chunkSize)
-
-    Info "Uploading in $totalChunks chunks via SSH (this takes ~1-2 min)..."
-
-    # fly ssh console always prints "Connecting to..." to stderr — silence it
+    # Delete the remote file first (fly sftp put refuses to overwrite)
     $ErrorActionPreference = 'SilentlyContinue'
-
-    # Clear / create the remote staging file
-    fly ssh console --app $APP --command "python3 -c `"open('/tmp/_db_upload.b64','w').close()`"" 2>$null
-    if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = 'Stop'; Fail "Could not initialise remote staging file" }
-
-    # Send chunks
-    for ($i = 0; $i -lt $b64.Length; $i += $chunkSize) {
-        $chunk    = $b64.Substring($i, [Math]::Min($chunkSize, $b64.Length - $i))
-        $chunkNum = [Math]::Floor($i / $chunkSize) + 1
-        Info "  Chunk $chunkNum / $totalChunks"
-        fly ssh console --app $APP --command "python3 -c `"open('/tmp/_db_upload.b64','a').write('$chunk')`"" 2>$null
-        if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = 'Stop'; Fail "Failed on chunk $chunkNum" }
-    }
-
-    # Decode and write to final destination
-    Info "Decoding and writing to ${FLY_DATA_DIR}/${RemoteName}..."
-    $result = fly ssh console --app $APP --command "python3 -c `"import base64; d=base64.b64decode(open('/tmp/_db_upload.b64').read()); open('$FLY_DATA_DIR/$RemoteName','wb').write(d); open('/tmp/_db_upload.b64','w').close(); print('Written',len(d),'bytes')`"" 2>$null
-    if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = 'Stop'; Fail "Failed to finalise upload: $result" }
-
+    fly ssh console --app $APP --command "rm -f $FLY_DATA_DIR/$RemoteName" 2>$null
     $ErrorActionPreference = 'Stop'
-    Success "$Label uploaded: $result"
+    if ($LASTEXITCODE -ne 0) { Fail "Could not remove existing remote file $FLY_DATA_DIR/$RemoteName" }
+
+    # Upload via fly sftp put
+    fly ssh sftp put $absPath $FLY_DATA_DIR/$RemoteName --app $APP
+    if ($LASTEXITCODE -ne 0) { Fail "SFTP upload failed for $Label" }
+
+    Success "$Label uploaded to $FLY_DATA_DIR/$RemoteName"
 }
 
 # ── Push framework DB ─────────────────────────────────────────────────────────
