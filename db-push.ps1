@@ -81,16 +81,13 @@ function Push-DB {
         return
     }
 
-    # fly ssh sftp put refuses to overwrite, so remove the remote file first
+    # fly ssh sftp put refuses to overwrite -- always remove the remote file first
+    $ErrorActionPreference = 'SilentlyContinue'
+    fly ssh console --app $APP --command "rm -f $FLY_DATA_DIR/$RemoteName" 2>$null
+    $ErrorActionPreference = 'Stop'
+
     fly ssh sftp put $absPath $FLY_DATA_DIR/$RemoteName --app $APP
-    if ($LASTEXITCODE -ne 0) {
-        Info "Remote file exists, removing and retrying..."
-        $ErrorActionPreference = 'SilentlyContinue'
-        fly ssh console --app $APP --command "rm -f $FLY_DATA_DIR/$RemoteName" 2>$null
-        $ErrorActionPreference = 'Stop'
-        fly ssh sftp put $absPath $FLY_DATA_DIR/$RemoteName --app $APP
-        if ($LASTEXITCODE -ne 0) { Fail "SFTP upload failed for $Label" }
-    }
+    if ($LASTEXITCODE -ne 0) { Fail "SFTP upload failed for $Label" }
 
     $localBytes = (Get-Item $LocalPath).Length
     Success "$Label uploaded ($localBytes bytes) to $FLY_DATA_DIR/$RemoteName"
