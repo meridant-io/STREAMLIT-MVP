@@ -1,6 +1,6 @@
 {
     "name": "My App",
-    "postCreateCommand": "sqlite3 data/meridant.db < seed.sql && sqlite3 data/meridant_frameworks.db < seed_frameworks.sql",
+    "postCreateCommand": "sqlite3 data/meridant.db < seed.sql && sqlite3 data/meridant_frameworks.db < seed_frameworks.sql && echo \"$AUTH_CONFIG\" > auth_config.yaml",
     "forwardPorts": [
         8501
     ],
