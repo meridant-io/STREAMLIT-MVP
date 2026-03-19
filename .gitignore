@@ -6,6 +6,8 @@ __pycache__/
 outputs/
 .claude/
 *.sh
+!db-push.sh
+!db-pull.sh
 *.bat
 data/*.db
 data/*.db-shm
