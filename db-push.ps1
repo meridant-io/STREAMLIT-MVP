@@ -102,8 +102,9 @@ function Push-DB {
     # Verify the upload landed by checking remote file size
     $localSize = (Get-Item $LocalPath).Length
     $ErrorActionPreference = 'SilentlyContinue'
-    $remoteSize = fly ssh console --app $APP --command "wc -c < $FLY_DATA_DIR/$RemoteName" 2>$null
+    $remoteOutput = fly ssh console --app $APP --command "wc -c < $FLY_DATA_DIR/$RemoteName" 2>$null
     $ErrorActionPreference = 'Stop'
+    $remoteSize = ($remoteOutput | Where-Object { $_ -match '^\s*\d+\s*$' } | Select-Object -First 1) -replace '\s',''
     if ($remoteSize -and [int]$remoteSize -eq $localSize) {
         Success "$Label uploaded ($localSize bytes verified on remote)"
     } else {
