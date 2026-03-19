@@ -6,6 +6,7 @@ from src.meridant_client import MeridantClient
 
 _narrative_column_ensured = False
 _consultant_column_ensured = False
+_framework_id_column_ensured = False
 
 
 def _ensure_narrative_column(client: MeridantClient) -> None:
@@ -36,6 +37,21 @@ def _ensure_consultant_column(client: MeridantClient) -> None:
     except Exception:
         pass  # Column already exists
     _consultant_column_ensured = True
+
+
+def _ensure_framework_id_column(client: MeridantClient) -> None:
+    """
+    Add framework_id column to Assessment if it doesn't already exist.
+    Memoized — only runs the ALTER TABLE once per process.
+    """
+    global _framework_id_column_ensured
+    if _framework_id_column_ensured:
+        return
+    try:
+        client.write("ALTER TABLE Assessment ADD COLUMN framework_id INTEGER DEFAULT 1", [])
+    except Exception:
+        pass  # Column already exists
+    _framework_id_column_ensured = True
 
 
 def save_narrative(client: MeridantClient, assessment_id: int, narrative: str) -> None:
@@ -123,6 +139,7 @@ def save_assessment_shell(client: MeridantClient, session: dict) -> int:
     existing row is updated in place and the same ID is returned.
     """
     _ensure_consultant_column(client)
+    _ensure_framework_id_column(client)
     client_id = _get_or_create_client(client, session)
 
     existing_id = session.get("assessment_id")
@@ -260,6 +277,7 @@ def save_assessment(client: MeridantClient, session: dict) -> int:
 
     # ── Full path: no prior shell — insert everything (legacy / edge-case fallback) ──
     _ensure_consultant_column(client)
+    _ensure_framework_id_column(client)
     client_id = _get_or_create_client(client, session)
 
     result = client.write(
@@ -474,6 +492,7 @@ def load_recommendations(client: MeridantClient, assessment_id: int) -> list[dic
 
 def list_assessments(client: MeridantClient) -> list[dict]:
     """Return a summary list of all assessments, newest first."""
+    _ensure_framework_id_column(client)
     res = client.query("""
         SELECT a.id, c.client_name, a.engagement_name, a.use_case_name,
                a.status, a.created_at, a.overall_score,
