@@ -22,18 +22,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$APP          = "streamlit-mvp"
+$APP = "streamlit-mvp"
 $FLY_DATA_DIR = "/data"
-$LOCAL_DATA   = "data"
+$LOCAL_DATA = "data"
 
 # If neither flag given, pull both
-$PullFrameworks  = -not $Assessments
+$PullFrameworks = -not $Assessments
 $PullAssessments = -not $Frameworks
 
-function Info    { param($msg) Write-Host ">> $msg" -ForegroundColor White }
+function Info { param($msg) Write-Host ">> $msg" -ForegroundColor White }
 function Success { param($msg) Write-Host "OK $msg" -ForegroundColor Green }
-function Warn    { param($msg) Write-Host "!! $msg" -ForegroundColor Yellow }
-function Fail    { param($msg) Write-Host "XX $msg" -ForegroundColor Red; exit 1 }
+function Warn { param($msg) Write-Host "!! $msg" -ForegroundColor Yellow }
+function Fail { param($msg) Write-Host "XX $msg" -ForegroundColor Red; exit 1 }
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 if (-not (Get-Command fly -ErrorAction SilentlyContinue)) {
@@ -86,7 +86,7 @@ function Pull-DB {
     "get $FLY_DATA_DIR/$RemoteName $LocalPath`nexit" | fly ssh sftp shell --app $APP
 
     if (-not (Test-Path $LocalPath)) {
-        Fail "Download failed — $LocalPath was not created"
+        Fail "Download failed - $LocalPath was not created"
     }
 
     $size = (Get-Item $LocalPath).Length / 1MB
@@ -98,9 +98,11 @@ function Pull-DB {
 if ($PullFrameworks) {
     if (Test-FlyFile "meridant_frameworks.db") {
         Pull-DB "meridant_frameworks.db" "$LOCAL_DATA\meridant_frameworks.db" "Framework DB"
-    } elseif (Test-FlyFile "e2caf.db") {
+    }
+    elseif (Test-FlyFile "e2caf.db") {
         Pull-DB "e2caf.db" "$LOCAL_DATA\e2caf.db" "Framework DB (legacy name)"
-    } else {
+    }
+    else {
         Warn "No framework DB found on Fly.io volume. Skipping."
     }
 }
@@ -109,11 +111,12 @@ if ($PullFrameworks) {
 if ($PullAssessments) {
     if (Test-FlyFile "meridant.db") {
         Pull-DB "meridant.db" "$LOCAL_DATA\meridant.db" "Assessment DB (prod data)"
-        Warn "Assessment DB contains production data — do not push this back to Fly.io"
-    } else {
+        Warn "Assessment DB contains production data - do not push this back to Fly.io"
+    }
+    else {
         Warn "No assessment DB found on Fly.io volume. Skipping."
     }
 }
 
 Write-Host ""
-Success "Pull complete — local data\ is now in sync with $APP.fly.dev"
+Success "Pull complete - local data\ is now in sync with $APP.fly.dev"

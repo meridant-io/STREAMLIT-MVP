@@ -20,16 +20,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$APP          = "streamlit-mvp"
+$APP = "streamlit-mvp"
 $FLY_DATA_DIR = "/data"
-$LOCAL_DATA   = "data"
+$LOCAL_DATA = "data"
 
-function Info    { param($msg) Write-Host ">> $msg" -ForegroundColor White }
+function Info { param($msg) Write-Host ">> $msg" -ForegroundColor White }
 function Success { param($msg) Write-Host "OK $msg" -ForegroundColor Green }
-function Warn    { param($msg) Write-Host "!! $msg" -ForegroundColor Yellow }
-function Fail    { param($msg) Write-Host "XX $msg" -ForegroundColor Red; exit 1 }
+function Warn { param($msg) Write-Host "!! $msg" -ForegroundColor Yellow }
+function Fail { param($msg) Write-Host "XX $msg" -ForegroundColor Red; exit 1 }
 
-$PushFrameworks  = $Frameworks -or $Both
+$PushFrameworks = $Frameworks -or $Both
 $PushAssessments = $Assessments -or $Both
 
 if (-not $PushFrameworks -and -not $PushAssessments) {
@@ -54,7 +54,7 @@ if ($PushAssessments -and -not $DryRun) {
     Write-Host ""
     $confirm = Read-Host "Type YES to confirm"
     if ($confirm -ne "YES") {
-        Fail "Aborted — type exactly YES to proceed"
+        Fail "Aborted - type exactly YES to proceed"
     }
     Write-Host ""
 }
@@ -98,9 +98,11 @@ function Push-DB {
 if ($PushFrameworks) {
     if (Test-Path "$LOCAL_DATA\meridant_frameworks.db") {
         Push-DB "$LOCAL_DATA\meridant_frameworks.db" "meridant_frameworks.db" "Framework DB"
-    } elseif (Test-Path "$LOCAL_DATA\e2caf.db") {
+    }
+    elseif (Test-Path "$LOCAL_DATA\e2caf.db") {
         Push-DB "$LOCAL_DATA\e2caf.db" "e2caf.db" "Framework DB (legacy name)"
-    } else {
+    }
+    else {
         Fail "No framework DB found in $LOCAL_DATA\"
     }
 }
@@ -111,4 +113,4 @@ if ($PushAssessments) {
 }
 
 Write-Host ""
-Success "Push complete — https://$APP.fly.dev"
+Success "Push complete - https://$APP.fly.dev"

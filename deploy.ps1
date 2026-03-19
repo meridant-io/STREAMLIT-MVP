@@ -46,7 +46,7 @@ if (-not (Get-Command fly -ErrorAction SilentlyContinue)) {
 # Never accidentally push the assessment DB
 $tracked = git ls-files --error-unmatch data/meridant.db 2>$null
 if ($LASTEXITCODE -eq 0) {
-    Fail "data/meridant.db is tracked by git — remove it first:`n  git rm --cached data/meridant.db"
+    Fail "data/meridant.db is tracked by git - remove it first:`n  git rm --cached data/meridant.db"
 }
 
 # ── Resolve which framework DB to upload ─────────────────────────────────────
@@ -70,11 +70,11 @@ if ($Message -eq "") {
 # STEP 1 — Git push
 # ══════════════════════════════════════════════════════════════════════════════
 if (-not $SkipCode) {
-    Info "Step 1/3 — Git: commit and push"
+    Info "Step 1/3 - Git: commit and push"
 
     $gitStatus = git status --porcelain
     if ($gitStatus -eq "") {
-        Warn "Nothing to commit — working tree is clean. Skipping git commit."
+        Warn "Nothing to commit - working tree is clean. Skipping git commit."
     } else {
         git add -A
         git commit -m $Message
@@ -91,7 +91,7 @@ if (-not $SkipCode) {
 # STEP 2 — Fly deploy
 # ══════════════════════════════════════════════════════════════════════════════
 if (-not $SkipCode) {
-    Info "Step 2/3 — fly deploy -> $APP"
+    Info "Step 2/3 - fly deploy -> $APP"
     fly deploy --app $APP
     Success "App deployed to Fly.io"
     Info "Waiting 10 seconds for app to start..."
@@ -104,7 +104,7 @@ if (-not $SkipCode) {
 # STEP 3 — Upload framework DB via SFTP
 # ══════════════════════════════════════════════════════════════════════════════
 if (-not $SkipDb) {
-    Info "Step 3/3 — Upload framework DB to Fly.io volume"
+    Info "Step 3/3 - Upload framework DB to Fly.io volume"
 
     if ($null -eq $frameworkDb) {
         Warn "No framework DB found (looked for data\meridant_frameworks.db and data\e2caf.db). Skipping DB upload."
@@ -138,4 +138,4 @@ if (-not $SkipDb) {
 
 # ══════════════════════════════════════════════════════════════════════════════
 Write-Host ""
-Success "Deploy complete — https://$APP.fly.dev"
+Success "Deploy complete - https://$APP.fly.dev"
