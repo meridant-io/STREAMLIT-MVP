@@ -3,7 +3,9 @@
     "features": {
         "ghcr.io/devcontainers/features/docker-in-docker:2": {}
     },
-    "postCreateCommand": "/usr/local/bin/sqlite3 data/meridant.db < seed.sql && /usr/local/bin/sqlite3 data/meridant_frameworks.db < seed_frameworks.sql && chmod +x start.sh",
+    "postCreateCommand": "bash setup.sh",
     "postStartCommand": "bash start.sh",
-    "forwardPorts": [8501]
+    "forwardPorts": [
+        8501
+    ]
 }
