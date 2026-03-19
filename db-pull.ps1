@@ -76,11 +76,13 @@ function Receive-DB {
         return
     }
 
-    # Backup existing file
+    # Backup existing file then remove it — fly ssh sftp shell's `get` refuses
+    # to overwrite an existing file, so we must delete before downloading.
     if (Test-Path $LocalPath) {
         $backup = "$LocalPath.bak"
         Copy-Item $LocalPath $backup -Force
         Warn "Backed up existing file to $backup"
+        Remove-Item $LocalPath -Force
     }
 
     "get $FLY_DATA_DIR/$RemoteName $LocalPath`nexit" | fly ssh sftp shell --app $APP
