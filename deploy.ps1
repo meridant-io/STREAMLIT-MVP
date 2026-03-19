@@ -136,7 +136,12 @@ if (-not $SkipDb) {
         }
         Success "VM is running"
 
-        "put $frameworkDb $FLY_DATA_DIR/$remoteDbName`nexit" | fly ssh sftp shell --app $APP
+        # fly ssh sftp shell's `put` refuses to overwrite existing files, so delete first.
+        Info "Removing existing remote file (if any)..."
+        fly ssh console --app $APP --command "rm -f $FLY_DATA_DIR/$remoteDbName" 2>$null
+
+        $absPath = (Resolve-Path $frameworkDb).Path
+        "put `"$absPath`" $FLY_DATA_DIR/$remoteDbName`nexit" | fly ssh sftp shell --app $APP
 
         Success "Framework DB uploaded to $FLY_DATA_DIR/$remoteDbName"
     }
