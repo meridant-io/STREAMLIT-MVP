@@ -29,17 +29,8 @@ function Success { param($msg) Write-Host "OK $msg" -ForegroundColor Green }
 function Warn { param($msg) Write-Host "!! $msg" -ForegroundColor Yellow }
 function Fail { param($msg) Write-Host "XX $msg" -ForegroundColor Red; exit 1 }
 
-$PushFrameworks = $Frameworks -or $Both
+$PushFrameworks = $Frameworks -or $Both -or (-not $Assessments -and -not $Both)
 $PushAssessments = $Assessments -or $Both
-
-if (-not $PushFrameworks -and -not $PushAssessments) {
-    Write-Host "Usage:"
-    Write-Host "  .\db-push.ps1 -Frameworks      # push framework DB (safe)"
-    Write-Host "  .\db-push.ps1 -Assessments     # push assessment DB (overwrites prod)"
-    Write-Host "  .\db-push.ps1 -Both            # push both"
-    Write-Host "  .\db-push.ps1 -DryRun          # preview without uploading"
-    exit 1
-}
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 if (-not (Get-Command fly -ErrorAction SilentlyContinue)) {
