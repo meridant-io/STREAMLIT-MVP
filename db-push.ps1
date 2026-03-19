@@ -82,9 +82,11 @@ function Push-DB {
     }
 
     # fly ssh sftp shell's `put` refuses to overwrite existing files, so delete first.
-    # fly ssh console --command handles simple shell commands reliably from PowerShell.
+    # fly ssh console always emits "Connecting..." on stderr -- silence it.
     Info "Removing existing remote file (if any)..."
+    $ErrorActionPreference = 'SilentlyContinue'
     fly ssh console --app $APP --command "rm -f $FLY_DATA_DIR/$RemoteName" 2>$null
+    $ErrorActionPreference = 'Stop'
 
     # Upload via SFTP. PowerShell's pipe sends the text to fly's stdin correctly here
     # because fly ssh sftp shell reads a command stream (not a PTY).
@@ -93,9 +95,12 @@ function Push-DB {
     if ($LASTEXITCODE -ne 0) { Fail "SFTP upload failed for $Label (exit code $LASTEXITCODE)" }
 
     # Verify
-    $remoteBytes = fly ssh console --app $APP --command "wc -c < $FLY_DATA_DIR/$RemoteName" 2>$null
+    $ErrorActionPreference = 'SilentlyContinue'
+    $remoteOutput = fly ssh console --app $APP --command "wc -c < $FLY_DATA_DIR/$RemoteName" 2>$null
+    $ErrorActionPreference = 'Stop'
+    $remoteBytes = ($remoteOutput | Where-Object { $_ -match '^\s*\d+\s*$' } | Select-Object -First 1) -replace '\s',''
     $localBytes  = (Get-Item $LocalPath).Length
-    Success "$Label uploaded (local: $localBytes bytes, remote: $($remoteBytes.Trim()) bytes)"
+    Success "$Label uploaded (local: $localBytes bytes, remote: $remoteBytes bytes)"
 }
 
 # ── Push framework DB ─────────────────────────────────────────────────────────
