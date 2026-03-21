@@ -1,0 +1,147 @@
+/*
+ * Meridant Brand CSS  v1.0
+ * Source of truth for all brand tokens — derived from meridant_brand_style_guide.svg
+ * Import or inject this file; do not hard-code values elsewhere.
+ */
+
+/* ── Web fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+:root {
+
+  /* ── Typefaces ── */
+  --m-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --m-font-mono: 'JetBrains Mono', 'Courier New', Courier, monospace;
+
+  /* ── Type scale ── */
+  --m-text-display:  32px;   /* hero wordmark, cover pages          */
+  --m-text-h1:       22px;   /* page titles, section headers        */
+  --m-text-h2:       16px;   /* card titles, sub-sections           */
+  --m-text-body:     14px;   /* narrative text, descriptions        */
+  --m-text-label:    11px;   /* table labels, metadata, hints       */
+  --m-text-tag:       9px;   /* sub-brand tags, status pills        */
+  --m-text-mono:     13px;   /* scores, IDs, code, data values      */
+
+  /* ── Font weights ── */
+  --m-weight-light:    300;
+  --m-weight-regular:  400;
+  --m-weight-medium:   500;
+  --m-weight-semibold: 600;
+  --m-weight-bold:     700;
+  --m-weight-black:    800;
+
+  /* ── Letter spacing ── */
+  --m-tracking-display:  0.08em;   /* wordmark at display size            */
+  --m-tracking-h1:       0.02em;
+  --m-tracking-tag:      0.16em;   /* section labels, category tags       */
+  --m-tracking-tagline:  0.20em;   /* sub-brand tagline, small-caps lines */
+
+  /* ── Line heights ── */
+  --m-leading-tight:  1.2;
+  --m-leading-normal: 1.5;
+  --m-leading-body:   1.7;
+
+  /* ── Primary palette ── */
+  --m-navy:        #0F2744;   /* sidebar bg, primary dark headers    */
+  --m-accent:      #2563EB;   /* CTAs, links, highlights             */
+  --m-white:       #F9FAFB;   /* body bg, text on dark               */
+
+  /* ── Sub-brand accents ── */
+  --m-matrix:      #2563EB;   /* Meridant Matrix                     */
+  --m-index:       #6366F1;   /* Meridant Index — AI/assessment      */
+  --m-insight:     #0EA5E9;   /* Meridant Insight — charts/reports   */
+  --m-benchmarks:  #0D9488;   /* Meridant Benchmarks — frameworks    */
+  --m-studio:      #7C3AED;   /* Meridant Studio — config/admin      */
+
+  /* ── Neutral ramp ── */
+  --m-neutral-900: #111827;   /* body text                           */
+  --m-neutral-700: #374151;   /* secondary text, borders             */
+  --m-neutral-500: #6B7280;   /* muted text, metadata                */
+  --m-neutral-300: #D1D5DB;   /* dividers, table borders             */
+  --m-neutral-100: #F3F4F6;   /* alternate row bg, surface           */
+
+  /* ── Semantic aliases ── */
+  --m-text-primary:    var(--m-neutral-900);
+  --m-text-secondary:  var(--m-neutral-700);
+  --m-text-muted:      var(--m-neutral-500);
+  --m-border:          var(--m-neutral-300);
+  --m-surface:         var(--m-neutral-100);
+  --m-bg:              var(--m-white);
+
+  /* ── Status / risk colours (used in gap analysis) ── */
+  --m-risk-high:    #DC2626;
+  --m-risk-medium:  #D97706;
+  --m-risk-low:     #0D9488;
+
+  /* ── Priority tier colours (roadmap) ── */
+  --m-priority-critical: #DC2626;
+  --m-priority-high:     #EA580C;
+  --m-priority-medium:   #D97706;
+  --m-priority-low:      #16A34A;
+
+  /* ── Domain palette (12 domains, fixed order) ── */
+  --m-domain-1:  #0F2744;
+  --m-domain-2:  #DC2626;
+  --m-domain-3:  #7C3AED;
+  --m-domain-4:  #2563EB;
+  --m-domain-5:  #0D9488;
+  --m-domain-6:  #6366F1;
+  --m-domain-7:  #0EA5E9;
+  --m-domain-8:  #374151;
+  --m-domain-9:  #5B21B6;
+  --m-domain-10: #0369A1;
+  --m-domain-11: #047857;
+  --m-domain-12: #9333EA;
+
+  /* ── Header ── */
+  --m-header-bg:     var(--m-navy);
+  --m-header-height: 68px;
+  --m-header-border: #1e3a5f;
+  --m-header-sub:    #93C5FD;   /* tagline / sub-text on navy          */
+}
+
+/* ── Utility classes ── */
+
+/* Wordmark */
+.m-wordmark {
+  font-family: var(--m-font-sans);
+  font-size: var(--m-text-display);
+  font-weight: var(--m-weight-light);
+  letter-spacing: var(--m-tracking-display);
+  color: var(--m-white);
+}
+
+/* Section label (used throughout dashboard + wizard) */
+.m-section-label {
+  font-family: var(--m-font-mono);
+  font-size: var(--m-text-tag);
+  font-weight: var(--m-weight-regular);
+  letter-spacing: var(--m-tracking-tag);
+  text-transform: uppercase;
+  color: var(--m-text-muted);
+}
+
+/* Mono data value */
+.m-mono {
+  font-family: var(--m-font-mono);
+  font-size: var(--m-text-mono);
+}
+
+/* KPI value */
+.m-kpi-val {
+  font-family: var(--m-font-mono);
+  font-size: 2rem;
+  font-weight: var(--m-weight-bold);
+  line-height: 1;
+}
+
+/* Status badge */
+.m-badge {
+  display: inline-block;
+  padding: .2rem .65rem;
+  border-radius: 999px;
+  font-size: var(--m-text-tag);
+  font-weight: var(--m-weight-semibold);
+  letter-spacing: var(--m-tracking-tag);
+  text-transform: uppercase;
+}

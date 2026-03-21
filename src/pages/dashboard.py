@@ -16,6 +16,52 @@ from src.sql_templates import q_list_next_usecases, get_frameworks, get_framewor
 
 # ── cached loaders ────────────────────────────────────────────────────────────
 
+def load_user_stats(_client, consultant_name: str):
+    """Load assessment summary stats for the logged-in consultant."""
+    res = _client.query(
+        """
+        SELECT
+            COUNT(*)                                          AS total,
+            SUM(CASE WHEN a.status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
+            SUM(CASE WHEN a.status = 'complete'    THEN 1 ELSE 0 END) AS complete,
+            COUNT(DISTINCT a.client_id)                       AS clients,
+            MAX(a.created_at)                                 AS last_activity
+        FROM Assessment a
+        WHERE COALESCE(a.consultant_name, '') = ?
+        """,
+        [consultant_name],
+    )
+    summary = res.get("rows", [{}])[0]
+
+    fw_res = _client.query(
+        """
+        SELECT nf.framework_key, COUNT(*) AS cnt
+        FROM Assessment a
+        LEFT JOIN Next_Framework nf ON a.framework_id = nf.id
+        WHERE COALESCE(a.consultant_name, '') = ?
+        GROUP BY nf.framework_key
+        ORDER BY cnt DESC
+        """,
+        [consultant_name],
+    )
+    by_framework = fw_res.get("rows", [])
+
+    ind_res = _client.query(
+        """
+        SELECT COALESCE(c.industry, 'Unknown') AS industry, COUNT(*) AS cnt
+        FROM Assessment a
+        LEFT JOIN Client c ON a.client_id = c.id
+        WHERE COALESCE(a.consultant_name, '') = ?
+        GROUP BY c.industry
+        ORDER BY cnt DESC
+        """,
+        [consultant_name],
+    )
+    by_industry = ind_res.get("rows", [])
+
+    return summary, by_framework, by_industry
+
+
 @st.cache_data(ttl=60)
 def load_domain_stats(_client, framework_id: int = 1):
     r = _client.query(
@@ -138,6 +184,7 @@ def load_use_cases(_client, framework_id: int = 1):
     return r.get("rows", [])
 
 
+
 # ── render ────────────────────────────────────────────────────────────────────
 
 def render() -> None:
@@ -149,44 +196,58 @@ def render() -> None:
         {"level1": "Pillar", "level2": "Domain", "level3": "Capability"}
     )
 
-    # ── Framework context indicator ──────────────────────────────────────────
-    _fw_list = get_frameworks(client)
-    _fw_name = next((f["framework_name"] for f in _fw_list if f["id"] == framework_id), "MMTF")
-    st.caption(
-        f"Framework: **{_fw_name}** &nbsp;·&nbsp; "
-        f"{labels['level1']} / {labels['level2']} / {labels['level3']}"
-    )
+    # ── My Assessments summary (folded into main payload) ───────────────────
+    current_user = st.session_state.get("authenticated_username") or ""
+    user_summary = {}
+    if current_user:
+        _us, _by_fw, _by_ind = load_user_stats(client, current_user)
+        user_summary = {
+            "username":      current_user,
+            "total":         _us.get("total") or 0,
+            "in_progress":   _us.get("in_progress") or 0,
+            "complete":      _us.get("complete") or 0,
+            "clients":       _us.get("clients") or 0,
+            "last_activity": (_us.get("last_activity") or "")[:10],
+            "by_framework":  _by_fw,
+            "by_industry":   _by_ind,
+        }
 
-    domains      = load_domain_stats(client, framework_id)
+    # ── Load all frameworks into payload for client-side switching ───────────
+    _fw_list     = get_frameworks(client)
     dep_mix      = load_dep_mix(client)
-    top_sds      = load_top_subdomains(client, framework_id)
-    anchors      = load_anchors(client, framework_id)
-    subdomains   = load_subdomains(client, framework_id)
-    capabilities = load_capabilities_with_maturity(client, framework_id)
-    cap_levels   = load_capability_levels(client, framework_id)
-    use_cases    = load_use_cases(client, framework_id)
 
-    total_caps = sum(d["capabilities"] for d in domains)
-    total_sds  = sum(d["subdomains"]   for d in domains)
-    total_deps = sum(d["count"]        for d in dep_mix)
-    total_ucs  = len(use_cases)
+    frameworks_data = {}
+    for _fw in _fw_list:
+        _fid  = _fw["id"]
+        _doms = load_domain_stats(client, _fid)
+        _sds  = load_subdomains(client, _fid)
+        _caps = load_capabilities_with_maturity(client, _fid)
+        _lvls = load_capability_levels(client, _fid)
+        _ucs  = load_use_cases(client, _fid)
+        frameworks_data[str(_fid)] = {
+            "domains":      _doms,
+            "subdomains":   _sds,
+            "capabilities": _caps,
+            "cap_levels":   _lvls,
+            "use_cases":    _ucs,
+            "kpis": {
+                "domains":      len(_doms),
+                "subdomains":   sum(d["subdomains"]   for d in _doms),
+                "capabilities": sum(d["capabilities"] for d in _doms),
+                "use_cases":    len(_ucs),
+            },
+        }
 
     payload = json.dumps({
-        "domains":      domains,
-        "dep_mix":      dep_mix,
-        "top_sds":      top_sds,
-        "anchors":      anchors,
-        "subdomains":   subdomains,
-        "capabilities": capabilities,
-        "cap_levels":   cap_levels,
-        "use_cases":    use_cases,
-        "kpis": {
-            "domains":      len(domains),
-            "subdomains":   total_sds,
-            "capabilities": total_caps,
-            "dependencies": total_deps,
-            "use_cases":    total_ucs,
-        },
+        "frameworks":      [{"id": f["id"], "framework_name": f["framework_name"],
+                             "label_level1": f["label_level1"] or "Pillar",
+                             "label_level2": f["label_level2"] or "Domain",
+                             "label_level3": f["label_level3"] or "Capability"}
+                            for f in _fw_list],
+        "frameworks_data": frameworks_data,
+        "default_fw_id":   framework_id,
+        "dep_mix":         dep_mix,
+        "user_summary":    user_summary,
     }, default=str)
 
     html = (
@@ -222,17 +283,36 @@ def render() -> None:
   .kpi-value { font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; line-height:1; color:var(--accent); }
   .kpi-label { font-size:.72rem; color:#6B7280; letter-spacing:.08em; text-transform:uppercase; margin-top:.3rem; }
 
+  /* User summary */
+  .my-kpi-card { background:#fff; border:1px solid #D1D5DB; border-radius:10px; padding:1rem 1.25rem; height:100%; }
+  .my-kpi-val  { font-family:'JetBrains Mono',monospace; font-size:1.8rem; font-weight:700; line-height:1; }
+  .my-kpi-lbl  { font-size:.67rem; color:#6B7280; letter-spacing:.08em; text-transform:uppercase; margin-top:.25rem; }
+  .my-panel    { background:#fff; border:1px solid #D1D5DB; border-radius:10px; padding:1rem 1.25rem; height:100%; }
+
+  /* Framework selector */
+  .fw-selector-bar { display:flex; align-items:center; gap:.75rem; margin-bottom:1.25rem; }
+  .fw-selector-bar label { font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; color:#6B7280; font-family:'JetBrains Mono',monospace; white-space:nowrap; }
+  #fw-select {
+    background:#fff; border:1px solid #D1D5DB; border-radius:6px;
+    padding:.35rem .75rem; font-size:.82rem; color:#111827;
+    font-family:'Inter',sans-serif; cursor:pointer; min-width:180px;
+  }
+  #fw-select:focus { outline:none; border-color:#2563EB; box-shadow:0 0 0 3px #2563EB22; }
+
   .domain-card {
     background:#ffffff; border:1px solid #D1D5DB; border-radius:10px;
-    cursor:pointer; padding:1rem 1.1rem;
+    cursor:pointer; padding:clamp(.55rem,.9vw,1rem) clamp(.55rem,.9vw,1.1rem);
     transition:transform .18s, box-shadow .18s, border-color .18s;
+    overflow:hidden;
   }
   .domain-card:hover { transform:translateY(-3px); box-shadow:0 4px 16px rgba(0,0,0,.08); }
   .domain-card.active { border-width:2px !important; }
-  .domain-id   { font-family:'JetBrains Mono',monospace; font-size:.68rem; font-weight:700; letter-spacing:.06em; margin-bottom:.4rem; }
-  .domain-name { font-size:.82rem; font-weight:700; line-height:1.3; min-height:2.4rem; color:#111827; margin-bottom:.8rem; }
-  .stat-val    { font-family:'JetBrains Mono',monospace; font-size:1.25rem; font-weight:700; }
-  .stat-lbl    { font-size:.62rem; color:#6B7280; text-transform:uppercase; }
+  .domain-id   { font-family:'JetBrains Mono',monospace; font-size:clamp(.58rem,.6vw,.68rem); font-weight:700; letter-spacing:.06em; margin-bottom:.3rem; }
+  .domain-name { font-size:clamp(.68rem,.75vw,.82rem); font-weight:700; line-height:1.3;
+                 color:#111827; margin-bottom:.6rem;
+                 overflow-wrap:break-word; word-break:break-word; hyphens:auto; }
+  .stat-val    { font-family:'JetBrains Mono',monospace; font-size:clamp(.85rem,1.1vw,1.25rem); font-weight:700; }
+  .stat-lbl    { font-size:clamp(.54rem,.6vw,.62rem); color:#6B7280; text-transform:uppercase; }
 
   #drilldown { display:none; }
   #drilldown.show { display:block; }
@@ -315,12 +395,21 @@ def render() -> None:
         + payload
         + """;</script>
 
+<!-- User summary -->
+<div id="user-summary" class="mb-4"></div>
+
+<!-- Framework selector -->
+<div class="fw-selector-bar">
+  <label for="fw-select">Framework</label>
+  <select id="fw-select"></select>
+</div>
+
 <!-- Breadcrumb (hidden until drill-down) -->
 <div id="breadcrumb-nav" style="display:none" class="mb-2"></div>
 
 <!-- Domain cards + drilldown -->
 <div id="view1">
-  <div class="section-label">Domain Overview &mdash; click any card to expand, then click a subdomain to view capabilities</div>
+  <div class="section-label" id="domain-overview-label">Domain Overview &mdash; click any card to expand, then click a subdomain to view capabilities</div>
   <div class="row g-2 mb-3" id="domain-grid"></div>
 
   <!-- Subdomain panel -->
@@ -387,19 +476,117 @@ const DEP_COLORS    = ['#DC2626','#D97706','#0D9488','#2563EB'];
 const LEVEL_COLORS  = ['#DC2626','#D97706','#EA580C','#0D9488','#2563EB'];
 const LEVEL_NAMES   = ['Ad Hoc','Defined','Integrated','Intelligent','Adaptive'];
 
-// lookup maps
-const domainColorMap = {};
-DATA.domains.forEach((d,i) => { domainColorMap[d.domain_name] = DOMAIN_COLORS[i % DOMAIN_COLORS.length]; });
-const domainById = Object.fromEntries(DATA.domains.map(d => [d.id, d]));
-const sdById     = Object.fromEntries(DATA.subdomains.map(s => [s.id, s]));
-const capLevelMap = {};
-DATA.cap_levels.forEach(cl => {
-  if (!capLevelMap[cl.capability_id]) capLevelMap[cl.capability_id] = [];
-  capLevelMap[cl.capability_id].push(cl);
-});
-Object.values(capLevelMap).forEach(arr => arr.sort((a,b) => a.level - b.level));
+// ── Framework selector + lookup maps ─────────────────────────────────────────
+let currentFwId = String(DATA.default_fw_id || Object.keys(DATA.frameworks_data)[0]);
+let currentFw   = DATA.frameworks_data[currentFwId];
 
-// state
+let domainColorMap = {}, domainById = {}, sdById = {}, capLevelMap = {};
+
+function buildLookups() {
+  domainColorMap = {};
+  currentFw.domains.forEach((d,i) => { domainColorMap[d.domain_name] = DOMAIN_COLORS[i % DOMAIN_COLORS.length]; });
+  domainById  = Object.fromEntries(currentFw.domains.map(d => [d.id, d]));
+  sdById      = Object.fromEntries(currentFw.subdomains.map(s => [s.id, s]));
+  capLevelMap = {};
+  currentFw.cap_levels.forEach(cl => {
+    if (!capLevelMap[cl.capability_id]) capLevelMap[cl.capability_id] = [];
+    capLevelMap[cl.capability_id].push(cl);
+  });
+  Object.values(capLevelMap).forEach(arr => arr.sort((a,b) => a.level - b.level));
+}
+buildLookups();
+
+(function initFwSelector() {
+  const sel = document.getElementById('fw-select');
+  DATA.frameworks.forEach(fw => {
+    const opt = document.createElement('option');
+    opt.value = String(fw.id);
+    opt.textContent = fw.framework_name;
+    if (String(fw.id) === currentFwId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', function() {
+    currentFwId = this.value;
+    currentFw   = DATA.frameworks_data[currentFwId];
+    activeDomainId = null; activeSubdomainId = null;
+    closeCapView();
+    document.getElementById('drilldown').classList.remove('show');
+    document.getElementById('breadcrumb-nav').style.display = 'none';
+    buildLookups();
+    renderDomainGrid();
+  });
+})();
+
+// ── User summary ─────────────────────────────────────────────────────────────
+(function() {
+  const us = DATA.user_summary;
+  if (!us || !us.total) return;
+
+  const FW_COLORS  = { MMTF:'#2563EB', NIST_CSF_2:'#0D9488' };
+  const FW_LABELS  = { MMTF:'MMTF',    NIST_CSF_2:'NIST CSF 2' };
+
+  // KPI row
+  const kpis = [
+    { val:us.total,       lbl:'Total',       color:'#2563EB' },
+    { val:us.in_progress, lbl:'In Progress', color:'#2563EB' },
+    { val:us.complete,    lbl:'Complete',    color:'#0D9488' },
+    { val:us.clients,     lbl:'Clients',     color:'#7C3AED' },
+  ];
+  let kpiHtml = '<div class="row g-2 mb-3">';
+  kpis.forEach(k => {
+    kpiHtml += `<div class="col-6 col-md-3"><div class="my-kpi-card">
+      <div class="my-kpi-val" style="color:${k.color}">${k.val}</div>
+      <div class="my-kpi-lbl">${k.lbl}</div>
+    </div></div>`;
+  });
+  kpiHtml += '</div>';
+
+  // Framework pills
+  let fwHtml = '';
+  (us.by_framework || []).forEach(fw => {
+    const key   = fw.framework_key || 'Unknown';
+    const color = FW_COLORS[key]  || '#6B7280';
+    const label = FW_LABELS[key]  || key;
+    fwHtml += `<span class="badge rounded-pill me-1 mb-1"
+      style="background:${color}18;color:${color};border:1px solid ${color}44;font-size:.75rem;font-weight:600;padding:.35rem .8rem">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:.9rem;font-weight:700">${fw.cnt}</span> ${label}
+    </span>`;
+  });
+  const lastHtml = us.last_activity
+    ? `<div style="font-size:.68rem;color:#9CA3AF;margin-top:.5rem">Last activity: ${us.last_activity}</div>` : '';
+
+  // Industry bars
+  const maxInd = Math.max(...(us.by_industry || []).map(r => r.cnt), 1);
+  let indHtml = '';
+  (us.by_industry || []).forEach(r => {
+    const pct = Math.round(r.cnt / maxInd * 100);
+    indHtml += `<div class="d-flex align-items-center gap-2 mb-1">
+      <span style="font-size:.75rem;color:#374151;width:130px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.industry}</span>
+      <div class="flex-grow-1" style="background:#F3F4F6;border-radius:3px;height:6px">
+        <div style="width:${pct}%;background:#2563EB;border-radius:3px;height:6px"></div>
+      </div>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:.72rem;color:#6B7280;width:14px;text-align:right">${r.cnt}</span>
+    </div>`;
+  });
+  if (!indHtml) indHtml = '<span style="font-size:.75rem;color:#9CA3AF">No data</span>';
+
+  const panelRow = `<div class="row g-2">
+    <div class="col-12 col-md-6"><div class="my-panel">
+      <div class="section-label mb-2">By Framework</div>
+      <div class="d-flex flex-wrap">${fwHtml}</div>
+      ${lastHtml}
+    </div></div>
+    <div class="col-12 col-md-6"><div class="my-panel">
+      <div class="section-label mb-2">By Industry</div>
+      ${indHtml}
+    </div></div>
+  </div>`;
+
+  document.getElementById('user-summary').innerHTML =
+    `<div class="section-label mb-3">My Assessments \u2014 ${us.username}</div>` + kpiHtml + panelRow;
+})();
+
+// ── state ────────────────────────────────────────────────────────────────────
 let activeDomainId   = null;
 let activeSubdomainId = null;
 
@@ -416,22 +603,26 @@ function renderPips(avg, color) {
 }
 
 // Domain cards
-const domainGrid = document.getElementById('domain-grid');
-DATA.domains.forEach((d,i) => {
-  const col   = document.createElement('div');
-  col.className = 'col-6 col-md-3';
-  const color = DOMAIN_COLORS[i % DOMAIN_COLORS.length];
-  col.innerHTML = `<div class="domain-card" id="dc-${d.id}" style="border-top:3px solid ${color}" onclick="toggleDomain(${d.id},'${color}')">
-    <div class="domain-id" style="color:${color}">D${d.id}</div>
-    <div class="domain-name">${d.domain_name}</div>
-    <div class="d-flex gap-3">
-      <div><div class="stat-val" style="color:${color}">${d.subdomains}</div><div class="stat-lbl">Subdomains</div></div>
-      <div><div class="stat-val" style="color:#111827">${d.capabilities}</div><div class="stat-lbl">Capabilities</div></div>
-      <div><div class="stat-val" style="color:#6B7280">${d.dependencies}</div><div class="stat-lbl">Deps</div></div>
-    </div>
-  </div>`;
-  domainGrid.appendChild(col);
-});
+function renderDomainGrid() {
+  const domainGrid = document.getElementById('domain-grid');
+  domainGrid.innerHTML = '';
+  currentFw.domains.forEach((d,i) => {
+    const col = document.createElement('div');
+    col.className = 'col-6 col-md-3';
+    const color = DOMAIN_COLORS[i % DOMAIN_COLORS.length];
+    col.innerHTML = `<div class="domain-card" id="dc-${d.id}" style="border-top:3px solid ${color}" onclick="toggleDomain(${d.id},'${color}')">
+      <div class="domain-id" style="color:${color}">D${d.id}</div>
+      <div class="domain-name">${d.domain_name}</div>
+      <div class="d-flex gap-2 flex-wrap">
+        <div><div class="stat-val" style="color:${color}">${d.subdomains}</div><div class="stat-lbl">Subdomains</div></div>
+        <div><div class="stat-val" style="color:#111827">${d.capabilities}</div><div class="stat-lbl">Capabilities</div></div>
+        <div><div class="stat-val" style="color:#6B7280">${d.dependencies}</div><div class="stat-lbl">Deps</div></div>
+      </div>
+    </div>`;
+    domainGrid.appendChild(col);
+  });
+}
+renderDomainGrid();
 
 function toggleDomain(id, color) {
   if (activeDomainId !== null) {
@@ -452,7 +643,7 @@ function toggleDomain(id, color) {
   card.classList.add('active');
   card.style.borderColor = color;
 
-  const domain = DATA.domains.find(d => d.id === id);
+  const domain = currentFw.domains.find(d => d.id === id);
   document.getElementById('dd-dot').style.cssText        = `width:10px;height:10px;flex-shrink:0;background:${color}`;
   document.getElementById('dd-title').textContent        = domain.domain_name;
   document.getElementById('dd-title').style.color        = color;
@@ -460,7 +651,7 @@ function toggleDomain(id, color) {
   document.getElementById('dd-badge').style.background   = color + '22';
   document.getElementById('dd-badge').style.color        = color;
 
-  const sds  = DATA.subdomains.filter(s => s.domain_id === id);
+  const sds  = currentFw.subdomains.filter(s => s.domain_id === id);
   const grid = document.getElementById('sd-grid');
   grid.innerHTML = '';
   sds.forEach(sd => {
@@ -503,7 +694,7 @@ document.getElementById('dd-close').addEventListener('click', () => {
 
 // Capability view
 function renderCapabilities(sdId, color, sdName) {
-  const caps   = DATA.capabilities.filter(c => c.subdomain_id === sdId);
+  const caps   = currentFw.capabilities.filter(c => c.subdomain_id === sdId);
   const domain = caps[0] ? domainById[caps[0].domain_id] : null;
 
   document.getElementById('cap-view-label').textContent =
@@ -556,7 +747,7 @@ function closeToDomain() {
 
 // Capability modal
 function openCapModal(capId) {
-  const cap    = DATA.capabilities.find(c => c.id === capId);
+  const cap    = currentFw.capabilities.find(c => c.id === capId);
   if (!cap) return;
   const domain = domainById[cap.domain_id];
   const sd     = sdById[cap.subdomain_id];
@@ -609,10 +800,11 @@ function openCapModal(capId) {
     });
   }
 
-  // Show overlay
+  // Show overlay and scroll parent page to bring iframe into view
   var overlay = document.getElementById('capOverlay');
   overlay.classList.add('show');
   document.getElementById('capOverlayContent').scrollTop = 0;
+  try { window.frameElement.scrollIntoView({behavior: 'smooth', block: 'start'}); } catch(e) {}
 }
 
 // Close overlay handlers

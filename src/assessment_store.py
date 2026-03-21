@@ -490,19 +490,39 @@ def load_recommendations(client: MeridantClient, assessment_id: int) -> list[dic
     return rows
 
 
-def list_assessments(client: MeridantClient) -> list[dict]:
-    """Return a summary list of all assessments, newest first."""
+def list_assessments(client: MeridantClient, consultant_name: str | None = None) -> list[dict]:
+    """Return a summary list of assessments, newest first.
+
+    If consultant_name is provided, only assessments belonging to that consultant
+    are returned. Pass None to return all (admin use).
+    """
     _ensure_framework_id_column(client)
-    res = client.query("""
-        SELECT a.id, c.client_name, a.engagement_name, a.use_case_name,
-               a.status, a.created_at, a.overall_score,
-               COALESCE(a.consultant_name, '') AS consultant_name,
-               COALESCE(a.framework_id, nu.framework_id, 1) AS framework_id
-        FROM Assessment a
-        LEFT JOIN Client c ON a.client_id = c.id
-        LEFT JOIN Next_UseCase nu ON a.usecase_id = nu.id
-        ORDER BY a.created_at DESC
-    """)
+    if consultant_name:
+        res = client.query(
+            """
+            SELECT a.id, c.client_name, a.engagement_name, a.use_case_name,
+                   a.status, a.created_at, a.overall_score,
+                   COALESCE(a.consultant_name, '') AS consultant_name,
+                   COALESCE(a.framework_id, nu.framework_id, 1) AS framework_id
+            FROM Assessment a
+            LEFT JOIN Client c ON a.client_id = c.id
+            LEFT JOIN Next_UseCase nu ON a.usecase_id = nu.id
+            WHERE COALESCE(a.consultant_name, '') = ?
+            ORDER BY a.created_at DESC
+            """,
+            [consultant_name],
+        )
+    else:
+        res = client.query("""
+            SELECT a.id, c.client_name, a.engagement_name, a.use_case_name,
+                   a.status, a.created_at, a.overall_score,
+                   COALESCE(a.consultant_name, '') AS consultant_name,
+                   COALESCE(a.framework_id, nu.framework_id, 1) AS framework_id
+            FROM Assessment a
+            LEFT JOIN Client c ON a.client_id = c.id
+            LEFT JOIN Next_UseCase nu ON a.usecase_id = nu.id
+            ORDER BY a.created_at DESC
+        """)
     return res.get("rows", [])
 
 

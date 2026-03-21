@@ -112,7 +112,8 @@ def render() -> None:
     st.title("Assessments")
     db   = get_client()
     fw_labels = _get_fw_labels(db)
-    rows = list_assessments(db)
+    current_user = st.session_state.get("authenticated_username") or None
+    rows = list_assessments(db, consultant_name=current_user)
 
     if not rows:
         st.info("No assessments yet. Go to **Create Assessment** to start one.")
